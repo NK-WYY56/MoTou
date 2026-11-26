@@ -1,0 +1,568 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/settings_root_scroll"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/diplay_window_bg"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="20dp"
+        android:paddingTop="18dp"
+        android:paddingBottom="32dp">
+
+        <!-- Top Navigation Bar -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingBottom="18dp">
+
+            <Button
+                android:id="@+id/btn_settings_back"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:paddingHorizontal="14dp"
+                android:text="‹ 返回"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_settings_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="14dp"
+                android:text="设置"
+                android:textColor="@color/diplay_text_primary"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- SECTION 1: AUDIO & SIRI ROUTING -->
+        <LinearLayout
+            android:id="@+id/card_settings_audio"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp"
+            android:layout_marginBottom="14dp">
+
+            <TextView
+                android:id="@+id/tv_kicker_audio"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:letterSpacing="0.08"
+                android:text="音频与 SIRI"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="12dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="12dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tv_headset_audio_title"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="声音与 Siri 走 iPhone 蓝牙耳机"
+                        android:textColor="@color/diplay_text_primary"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tv_headset_audio_desc"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="开启后关闭手机端外放与麦克风占用，音乐、导航语音、通话和 Siri 语音均由 iPhone 直接输出到蓝牙头盔耳机（切换时自动重连生效）。"
+                        android:textColor="@color/diplay_text_secondary"
+                        android:textSize="13sp"
+                        android:lineSpacingMultiplier="1.25" />
+                </LinearLayout>
+
+                <Switch
+                    android:id="@+id/sw_headset_audio"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- SECTION 2: AUTOMATION & STREAM MODE -->
+        <LinearLayout
+            android:id="@+id/card_settings_auto"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp"
+            android:layout_marginBottom="14dp">
+
+            <TextView
+                android:id="@+id/tv_kicker_auto"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:letterSpacing="0.08"
+                android:text="连接与后台模式"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <!-- Auto Connect Switch -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="12dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="12dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tv_auto_connect_title"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="连车无感自动连接"
+                        android:textColor="@color/diplay_text_primary"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tv_auto_connect_summary"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="第 1 步车机仪表连接成功后，后台自动启动无线 CarPlay（手机无需亮屏）"
+                        android:textColor="@color/diplay_text_secondary"
+                        android:textSize="13sp"
+                        android:lineSpacingMultiplier="1.2" />
+                </LinearLayout>
+
+                <Switch
+                    android:id="@+id/sw_auto_connect"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true" />
+            </LinearLayout>
+
+            <!-- Auto Background Switch -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="16dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="12dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tv_auto_bg_title"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="自动连接后退回后台"
+                        android:textColor="@color/diplay_text_primary"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tv_auto_bg_desc"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="自动任务拉起并激活 CarPlay 后自动收起界面，不影响锁屏放兜里"
+                        android:textColor="@color/diplay_text_secondary"
+                        android:textSize="13sp"
+                        android:lineSpacingMultiplier="1.2" />
+                </LinearLayout>
+
+                <Switch
+                    android:id="@+id/sw_auto_background"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true" />
+            </LinearLayout>
+
+            <!-- Virtual Display Switch (hidden from UI; always enabled under the hood) -->
+            <LinearLayout
+                android:id="@+id/row_virtual_mode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:visibility="gone"
+                android:layout_marginTop="16dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="12dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tv_virtual_title"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="虚拟屏离屏推流 (方案 A)"
+                        android:textColor="@color/diplay_text_primary"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tv_virtual_mode_desc"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="手机锁屏或切出其他应用时仍保持 CarPlay 稳定推流至仪表"
+                        android:textColor="@color/diplay_text_secondary"
+                        android:textSize="13sp"
+                        android:lineSpacingMultiplier="1.2" />
+                </LinearLayout>
+
+                <Switch
+                    android:id="@+id/sw_virtual_mode"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- SECTION 3: DISPLAY & LAYOUT PRESETS -->
+        <LinearLayout
+            android:id="@+id/card_settings_display"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp"
+            android:layout_marginBottom="14dp">
+
+            <TextView
+                android:id="@+id/tv_kicker_display"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:letterSpacing="0.08"
+                android:text="仪表画面参数"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <!-- Clickable Bike Model Preset Row (opens secondary menu) -->
+            <LinearLayout
+                android:id="@+id/row_bike_model_picker"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="12dp"
+                android:layout_marginTop="12dp"
+                android:clickable="true"
+                android:focusable="true">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="10dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tv_bike_model_label"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="车型仪表预设"
+                        android:textColor="@color/diplay_text_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tv_bike_model_desc"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:text="直角无圆角黑边 · 四边贴合上下仪表栏 · 1:1 图标比例矫正"
+                        android:textColor="@color/diplay_text_secondary"
+                        android:textSize="12sp"
+                        android:lineSpacingMultiplier="1.2" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tv_bike_model_value"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="凯越 450RR  ›"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tv_icon_size_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="CarPlay 图标大小"
+                android:textColor="@color/diplay_text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="8dp">
+
+                <Button
+                    android:id="@+id/btn_icon_xl"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:maxLines="1"
+                    android:text="超大图标"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/btn_icon_large"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:layout_marginHorizontal="4dp"
+                    android:maxLines="1"
+                    android:text="大图标(推荐)"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/btn_icon_std"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="4dp"
+                    android:maxLines="1"
+                    android:text="标准"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btn_optimize_config"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="14dp"
+                android:text="应用当前画面参数"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- SECTION 4: DIAGNOSTIC & UTILITY TOOLS -->
+        <LinearLayout
+            android:id="@+id/card_settings_tools"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp"
+            android:layout_marginBottom="14dp">
+
+            <TextView
+                android:id="@+id/tv_kicker_tools"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:letterSpacing="0.08"
+                android:text="调试与辅助工具"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="12dp">
+
+                <Button
+                    android:id="@+id/btn_force_idr"
+                    android:layout_width="0dp"
+                    android:layout_height="42dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="5dp"
+                    android:maxLines="1"
+                    android:text="刷新仪表画面"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/btn_scan_usb"
+                    android:layout_width="0dp"
+                    android:layout_height="42dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="5dp"
+                    android:maxLines="1"
+                    android:text="扫描 USB 盒子"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tv_dongle_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="有线 USB 盒子: 未接入"
+                android:textColor="@color/diplay_text_secondary"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btn_diplay_advanced"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="10dp"
+                android:text="打开 DiPlay 完整高级设置"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <!-- Handlebar Key Test Simulator -->
+            <TextView
+                android:id="@+id/tv_key_test_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="蓝牙手把按键模拟测试"
+                android:textColor="@color/diplay_text_primary"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="8dp">
+
+                <Button
+                    android:id="@+id/btn_key_up"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="3dp"
+                    android:text="▲ 上"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/btn_key_down"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:layout_marginHorizontal="3dp"
+                    android:text="▼ 下"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/btn_key_confirm"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:layout_marginHorizontal="3dp"
+                    android:text="✔ 确认"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/btn_key_back"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="3dp"
+                    android:text="↩ 返回"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tv_settings_key_log"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="按键监听就绪"
+                android:textColor="@color/diplay_text_secondary"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- SECTION 5: OPEN-SOURCE CREDITS -->
+        <LinearLayout
+            android:id="@+id/card_settings_credits"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <TextView
+                android:id="@+id/tv_kicker_credits"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:letterSpacing="0.08"
+                android:text="关于与开源项目声明"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_credits_summary"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="思骑CarPlay 遵循原始开源协议并致敬以下开源项目：\n• DiPlay (github.com/shihabal3amri/DiPlay, GPL-3.0)\n• xcertplay (github.com/shilapi/xcertplay, GPL-3.0)\n• DiAuto UI (github.com/shihabal3amri/DiAuto, AGPL-3.0)\n• LIVI / Showcase / SpeexDSP / Concentus / JmDNS / Bouncy Castle"
+                android:textColor="@color/diplay_text_secondary"
+                android:textSize="12sp"
+                android:lineSpacingMultiplier="1.25" />
+
+            <Button
+                android:id="@+id/btn_open_source_credits"
+                android:layout_width="match_parent"
+                android:layout_height="42dp"
+                android:layout_marginTop="12dp"
+                android:text="查看完整开源声明与作者仓库"
+                android:textSize="13sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="10dp">
+
+                <Button
+                    android:id="@+id/btn_author_github"
+                    android:layout_width="0dp"
+                    android:layout_height="42dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="5dp"
+                    android:maxLines="1"
+                    android:text="GitHub 开源主页"
+                    android:textSize="13sp" />
+
+                <Button
+                    android:id="@+id/btn_author_douyin"
+                    android:layout_width="0dp"
+                    android:layout_height="42dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="5dp"
+                    android:maxLines="1"
+                    android:text="作者抖音主页"
+                    android:textSize="13sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

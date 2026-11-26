@@ -1,0 +1,26 @@
+# Private MFi / signing credentials (never commit)
+*.p7b
+*.cer
+*.x963
+*.pk8
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+App/BundledIdentity/
+.local-auth-assets/
+
+# Build outputs & local tooling
+build/
+**/build/
+.build/
+.gradle/
+.idea/
+.swiftpm/
+xcuserdata/
+local.properties
+*.ipa
+*.apk
+*.aab
+.DS_Store

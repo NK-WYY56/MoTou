@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="diplay_window_bg">#FF0C111B</color>
+    <color name="diplay_surface">#FF151E2C</color>
+    <color name="diplay_button">#FF1F2B3D</color>
+    <color name="diplay_outline">#FF2A384B</color>
+    <color name="diplay_text_primary">#FFF1F5FC</color>
+    <color name="diplay_text_secondary">#FFA8B6CA</color>
+    <color name="diplay_accent">#FFA6C8FF</color>
+    <color name="diplay_on_accent">#FF0C111B</color>
+    <color name="diplay_success">#FF7FCD9A</color>
+    <color name="diplay_warning">#FFFFC480</color>
+    <color name="diplay_danger">#FFBE2D2D</color>
+</resources>

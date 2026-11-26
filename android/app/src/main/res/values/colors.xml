@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="diplay_window_bg">#FFE9EEF6</color>
+    <color name="diplay_surface">#FFF8FAFD</color>
+    <color name="diplay_button">#FFDCE5F1</color>
+    <color name="diplay_outline">#FFA7B5C7</color>
+    <color name="diplay_text_primary">#FF1C1C1E</color>
+    <color name="diplay_text_secondary">#FF5A6474</color>
+    <color name="diplay_accent">#FF245A9C</color>
+    <color name="diplay_on_accent">#FFFFFFFF</color>
+    <color name="diplay_success">#FF286B3F</color>
+    <color name="diplay_warning">#FF7A4500</color>
+    <color name="diplay_danger">#FF9B3030</color>
+
+    <!-- Legacy aliases kept for compatibility -->
+    <color name="bg_dark">@color/diplay_window_bg</color>
+    <color name="card_bg">@color/diplay_surface</color>
+    <color name="card_inner">@color/diplay_button</color>
+    <color name="accent_blue">@color/diplay_accent</color>
+    <color name="accent_green">@color/diplay_success</color>
+    <color name="accent_red">@color/diplay_danger</color>
+    <color name="accent_yellow">@color/diplay_warning</color>
+    <color name="accent_purple">@color/diplay_accent</color>
+    <color name="text_muted">@color/diplay_text_secondary</color>
+</resources>

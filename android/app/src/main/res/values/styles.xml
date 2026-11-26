@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.CarPlaySiQiRelay" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/diplay_window_bg</item>
+        <item name="android:statusBarColor">@color/diplay_window_bg</item>
+        <item name="android:navigationBarColor">@color/diplay_window_bg</item>
+    </style>
+</resources>

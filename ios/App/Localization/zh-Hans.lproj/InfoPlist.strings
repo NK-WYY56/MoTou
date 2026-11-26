@@ -1,0 +1,6 @@
+"CFBundleDisplayName" = "思骑CarPlay";
+"CFBundleName" = "思骑CarPlay";
+"NSBluetoothAlwaysUsageDescription" = "思骑CarPlay 使用蓝牙保持与本机配件及音频设备的协同连接。";
+"NSLocalNetworkUsageDescription" = "思骑CarPlay 需要访问本地网络，以在本机启动无线 CarPlay 并将画面推送至思骑摩托车仪表。";
+"NSLocationWhenInUseUsageDescription" = "思骑CarPlay 仅使用定位权限读取当前连接的仪表 Wi-Fi 名称，不会收集位置坐标。";
+"NSMicrophoneUsageDescription" = "思骑CarPlay 需要使用麦克风以支持 Siri 与通话语音。";

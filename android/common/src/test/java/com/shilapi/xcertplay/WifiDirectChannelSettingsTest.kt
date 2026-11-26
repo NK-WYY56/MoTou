@@ -1,0 +1,218 @@
+package com.shilapi.xcertplay
+
+import android.app.AlertDialog
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Looper
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.Button
+import android.widget.LinearLayout
+import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.network.WifiP2pChannels
+import com.shilapi.xcertplay.orchestration.CarPlayRuntimeConfig
+import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
+import org.junit.Assert.*
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.Robolectric
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+import org.robolectric.shadow.api.Shadow
+import org.robolectric.shadows.ShadowAlertDialog
+import org.robolectric.shadows.ShadowContextImpl
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [32], qualifiers = "en", manifest = Config.NONE)
+class WifiDirectChannelSettingsTest {
+    private lateinit var activity: DiPlayActivity
+    private val prefs get() = RuntimeEnvironment.getApplication()
+        .getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE)
+
+    @Before fun setup() {
+        prefs.edit().clear().commit()
+        activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
+        activity.setTheme(android.R.style.Theme_Material_NoActionBar)
+        AirPlayPersistence.saveWirelessHotspotMode(activity, WirelessHotspotMode.WIFI_P2P)
+    }
+
+    // #1256: without Wi-Fi Direct the choice could only fail, so it is marked and cannot be chosen.
+    @Test fun aHeadUnitWithoutWifiDirectMarksTheChoiceAndSaysWhatToChoose() {
+        // The #1256 unit: no wifip2p service, so Android gives no WifiP2pManager.
+        Shadow.extract<ShadowContextImpl>(activity.baseContext).removeSystemService(Context.WIFI_P2P_SERVICE)
+        val chosen = controls()
+        val choice = findButton(chosen, "✓  Wi-Fi Direct · Not available")!!
+        assertFalse(choice.isEnabled)
+        // It opens nothing, so it stays a centred tile without the setting-row chevron.
+        assertEquals(Gravity.CENTER, choice.gravity)
+        assertTrue(choice.compoundDrawablesRelative.all { it == null })
+        assertTrue(findText(chosen, activity.getString(R.string.this_head_unit_does_not_support_wi_fi_direct)))
+        assertTrue(findText(chosen, activity.getString(R.string.settings_wifi_direct_unsupported_help)))
+        assertNull(channelControl(chosen))
+        assertNull(findSwitch(chosen, activity.getString(R.string.settings_wifi_direct_scan_pause)))
+        assertTrue(findButton(chosen, activity.getString(R.string.settings_built_in_car_hotspot_recommended))!!.isEnabled)
+        assertTrue(findButton(chosen, activity.getString(R.string.existing_wifi_title))!!.isEnabled)
+
+        AirPlayPersistence.saveWirelessHotspotMode(activity, WirelessHotspotMode.MANUAL)
+        val other = controls()
+        assertFalse(findButton(other, "Wi-Fi Direct · Not available")!!.isEnabled)
+        assertFalse(findText(other, activity.getString(R.string.settings_wifi_direct_unsupported_help)))
+    }
+
+    @Test fun aHeadUnitWithWifiDirectKeepsTheChoice() {
+        // A manager alone keeps Wi-Fi Direct, also where the firmware does not declare the feature.
+        shadowOf(activity.packageManager).setSystemFeature(PackageManager.FEATURE_WIFI_DIRECT, false)
+        AirPlayPersistence.saveWirelessHotspotMode(activity, WirelessHotspotMode.MANUAL)
+        val view = controls()
+        val choice = findButton(view, activity.getString(R.string.wifi_direct))!!
+        assertTrue(choice.isEnabled)
+        assertTrue(findText(view, activity.getString(R.string.hotspot_mode_p2p_desc)))
+        assertFalse(findText(view, activity.getString(R.string.this_head_unit_does_not_support_wi_fi_direct)))
+    }
+
+    @Test fun defaultIsAutoAndCancelDoesNotSavePreviewedChannel() {
+        assertEquals(WifiP2pChannels.AUTO, AirPlayPersistence.loadWifiP2pPreferredChannel(activity))
+        val control = channelControl(controls())!!
+        assertTrue(control.text.toString().endsWith("Auto"))
+        control.performClick()
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        assertEquals(0, dialog.listView.checkedItemPosition)
+        select(dialog, 149)
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(WifiP2pChannels.AUTO, AirPlayPersistence.loadWifiP2pPreferredChannel(activity))
+        assertTrue(control.text.toString().endsWith("Auto"))
+    }
+
+    @Test fun savedChannelSurvivesModeChangesAndCanBeResetToAuto() {
+        val control = channelControl(controls())!!
+        control.performClick()
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        select(dialog, 149)
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(149, AirPlayPersistence.loadWifiP2pPreferredChannel(activity))
+        assertTrue(control.text.toString().contains("149"))
+        AirPlayPersistence.saveWirelessHotspotMode(activity, WirelessHotspotMode.MANUAL)
+        assertNull(channelControl(controls()))
+        assertEquals(149, AirPlayPersistence.loadWifiP2pPreferredChannel(activity))
+        AirPlayPersistence.saveWirelessHotspotMode(activity, WirelessHotspotMode.WIFI_P2P)
+        channelControl(controls())!!.performClick()
+        val reopened = ShadowAlertDialog.getLatestAlertDialog()
+        assertEquals(choices.indexOf(149), reopened.listView.checkedItemPosition)
+        select(reopened, WifiP2pChannels.AUTO)
+        reopened.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(WifiP2pChannels.AUTO, AirPlayPersistence.loadWifiP2pPreferredChannel(activity))
+    }
+
+    @Test fun autoBandChoicesAreListedAfterAutoAndPersist() {
+        val control = channelControl(controls())!!
+        control.performClick()
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        assertEquals("Auto · 5 GHz", dialog.listView.adapter.getItem(1).toString())
+        assertEquals("Auto · 2.4 GHz", dialog.listView.adapter.getItem(2).toString())
+        select(dialog, WifiP2pChannels.AUTO_5_GHZ)
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(WifiP2pChannels.AUTO_5_GHZ, AirPlayPersistence.loadWifiP2pPreferredChannel(activity))
+        assertTrue(control.text.toString().endsWith("Auto · 5 GHz"))
+    }
+
+    @Test fun invalidOrCorruptSavedChannelsUseAuto() {
+        for (channel in listOf(-1, 12, 14, 52, 100, 196)) {
+            prefs.edit().putInt("wifi_p2p_preferred_channel", channel).commit()
+            assertEquals(WifiP2pChannels.AUTO, AirPlayPersistence.loadWifiP2pPreferredChannel(activity))
+        }
+        prefs.edit().putString("wifi_p2p_preferred_channel", "149").commit()
+        assertEquals(WifiP2pChannels.AUTO, AirPlayPersistence.loadWifiP2pPreferredChannel(activity))
+    }
+
+    @Test fun hostRuntimeConfigReceivesSavedChannel() {
+        AirPlayPersistence.saveWifiP2pPreferredChannel(activity, 149)
+        val host = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        CarPlayHostActivity::class.java.getDeclaredField("airPlayIdentity").apply { isAccessible = true }
+            .set(host, AirPlayPersistence.loadIdentity(host))
+        val config = CarPlayHostActivity::class.java.getDeclaredMethod("createRuntimeConfig")
+            .apply { isAccessible = true }.invoke(host) as CarPlayRuntimeConfig
+        assertEquals(149, config.wifiP2pPreferredChannel)
+    }
+
+    @Test fun theScanPauseSwitchIsOnByDefaultAndCanBeTurnedOff() {
+        // #755: the pause also stops the car joining the phone's hotspot by itself, so drivers can turn it off.
+        assertTrue(AirPlayPersistence.loadWifiDirectScanPause(activity))
+        val title = activity.getString(R.string.settings_wifi_direct_scan_pause)
+        val switch = findSwitch(controls(), title)!!
+        assertTrue(switch.isChecked)
+        switch.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(AirPlayPersistence.loadWifiDirectScanPause(activity))
+        assertFalse(prefs.getBoolean(AirPlayPersistence.KEY_WIFI_DIRECT_SCAN_PAUSE, true))
+    }
+
+    @Test fun theScanPauseSwitchIsForWifiDirectAndTheCarHotspotOnly() {
+        val title = activity.getString(R.string.settings_wifi_direct_scan_pause)
+        AirPlayPersistence.saveWirelessHotspotMode(activity, WirelessHotspotMode.MANUAL)
+        val hotspot = controls()
+        val switch = findSwitch(hotspot, title)!!
+        // The car hotspot's own description: the pause only runs where the car keeps its client on beside it.
+        val shown = texts(hotspot)
+        assertTrue(activity.getString(R.string.settings_car_hotspot_scan_pause_description) in shown)
+        assertFalse(activity.getString(R.string.settings_wifi_direct_scan_pause_description) in shown)
+        switch.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(AirPlayPersistence.loadWifiDirectScanPause(activity))
+        AirPlayPersistence.saveWirelessHotspotMode(activity, WirelessHotspotMode.EXISTING_WIFI)
+        assertNull(findSwitch(controls(), title))
+    }
+
+    private fun findButton(view: View, text: String): Button? {
+        if (view is Button && view.text.toString() == text) return view
+        if (view is ViewGroup) for (index in 0 until view.childCount) {
+            findButton(view.getChildAt(index), text)?.let { return it }
+        }
+        return null
+    }
+
+    private fun findText(view: View, text: String): Boolean = view is android.widget.TextView && view !is Button &&
+        view.text.toString() == text ||
+        view is ViewGroup && (0 until view.childCount).any { findText(view.getChildAt(it), text) }
+
+    private fun findSwitch(view: View, title: String): android.widget.Switch? {
+        if (view is android.widget.Switch && view.contentDescription == title) return view
+        if (view is ViewGroup) for (index in 0 until view.childCount) {
+            findSwitch(view.getChildAt(index), title)?.let { return it }
+        }
+        return null
+    }
+
+    private fun texts(view: View): List<String> = when (view) {
+        is android.widget.TextView -> listOf(view.text.toString())
+        is ViewGroup -> (0 until view.childCount).flatMap { texts(view.getChildAt(it)) }
+        else -> emptyList()
+    }
+
+    private val choices get() = listOf(WifiP2pChannels.AUTO) + WifiP2pChannels.bandChoices + WifiP2pChannels.channels
+
+    private fun select(dialog: AlertDialog, channel: Int) {
+        val index = choices.indexOf(channel)
+        dialog.listView.performItemClick(null, index, index.toLong())
+    }
+
+    private fun controls() = LinearLayout(activity).also {
+        DiPlayActivity::class.java.getDeclaredMethod("wirelessLinkControls", LinearLayout::class.java)
+            .apply { isAccessible = true }.invoke(activity, it)
+    }
+
+    private fun channelControl(view: View): Button? {
+        if (view is Button && view.text.startsWith(activity.getString(R.string.wifi_direct_channel_summary, ""))) return view
+        if (view is ViewGroup) for (index in 0 until view.childCount) {
+            channelControl(view.getChildAt(index))?.let { return it }
+        }
+        return null
+    }
+}
