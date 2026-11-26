@@ -14,7 +14,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.carplay.siqirelay"
+        applicationId = "com.nkwyy56.siqicarplay"
         minSdk = 26
         targetSdk = 34
         versionCode = 20

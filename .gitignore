@@ -24,3 +24,5 @@ local.properties
 *.apk
 *.aab
 .DS_Store
+
+build_cli/
