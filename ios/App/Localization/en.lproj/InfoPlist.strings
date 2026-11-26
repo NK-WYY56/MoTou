@@ -1,6 +1,6 @@
-"CFBundleDisplayName" = "思骑CarPlay";
-"CFBundleName" = "思骑CarPlay";
-"NSBluetoothAlwaysUsageDescription" = "思骑CarPlay uses Bluetooth for accessory and headset coordination.";
-"NSLocalNetworkUsageDescription" = "思骑CarPlay needs local network access to host CarPlay and stream video to your SiQi motorcycle cluster.";
-"NSLocationWhenInUseUsageDescription" = "思骑CarPlay uses location access only to read the current cluster Wi-Fi name.";
-"NSMicrophoneUsageDescription" = "思骑CarPlay uses the microphone for Siri and voice calls.";
+"CFBundleDisplayName" = "摩投";
+"CFBundleName" = "摩投";
+"NSBluetoothAlwaysUsageDescription" = "摩投 uses Bluetooth for accessory and headset coordination.";
+"NSLocalNetworkUsageDescription" = "摩投 needs local network access to host CarPlay and stream video to your SiQi motorcycle cluster.";
+"NSLocationWhenInUseUsageDescription" = "摩投 uses location access only to read the current cluster Wi-Fi name.";
+"NSMicrophoneUsageDescription" = "摩投 uses the microphone for Siri and voice calls.";

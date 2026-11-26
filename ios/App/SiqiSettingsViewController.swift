@@ -19,7 +19,7 @@ protocol SiqiSettingsDelegate: AnyObject {
     func showGuideSheet(from presenter: UIViewController)
 }
 
-/// Unified settings screen mirroring Android 思骑CarPlay SettingsActivity:
+/// Unified settings screen mirroring Android 摩投 SettingsActivity:
 /// 1) 仪表画面参数 (二级菜单切换车型仪表预设 [当前仅思骑出行/凯越450RR] + 图标大小 + 编码模式 + 外观)
 /// 2) 连接与后台模式 (锁屏保活)
 /// 3) 音频与 Siri
@@ -205,7 +205,7 @@ final class SiqiSettingsViewController: UIViewController {
         }, for: .valueChanged)
         card.stack.addArrangedSubview(makeSwitchRow(
             title: "锁屏与后台继续运行",
-            subtitle: "手机息屏放兜里或切出应用时保持 CarPlay 推流。请在系统「设置 › 通用 › CarPlay › 思骑CarPlay」开启「锁定时允许 CarPlay」。",
+            subtitle: "手机息屏放兜里或切出应用时保持 CarPlay 推流。请在系统「设置 › 通用 › CarPlay › 摩投」开启「锁定时允许 CarPlay」。",
             toggle: keepAliveSwitch
         ))
         return card
@@ -303,7 +303,7 @@ final class SiqiSettingsViewController: UIViewController {
         card.stack.addArrangedSubview(SiqiStyle.makeKicker("关于与开源项目声明"))
 
         let summary = SiqiStyle.makeSecondaryLabel(
-            "思骑CarPlay (iOS) 遵循原始开源协议并致敬以下开源项目：\n" +
+            "摩投 (iOS) 遵循原始开源协议并致敬以下开源项目：\n" +
             "• CarWithin (github.com/xmz28/CarWithin, GPL-3.0 / AGPL-3.0)\n" +
             "• DiPlay (github.com/shihabal3amri/DiPlay, GPL-3.0)\n" +
             "• xcertplay (github.com/shilapi/xcertplay, GPL-3.0)\n" +
@@ -403,7 +403,7 @@ final class SiqiSettingsViewController: UIViewController {
 
     private func showFullCreditsAlert() {
         let msg =
-            "思骑CarPlay (iOS) 遵循以下开源项目原始协议并致谢：\n\n" +
+            "摩投 (iOS) 遵循以下开源项目原始协议并致谢：\n\n" +
             "1. CarWithin (GNU GPL-3.0 / AGPL-3.0)\n" +
             "   • 仓库: https://github.com/xmz28/CarWithin\n" +
             "   • 作用: 提供 iPhone 本机自托管 CarPlay 接收端、CoreAccessories iAP2 直连传输、锁屏静音保活与 VideoToolbox 编解码架构\n\n" +

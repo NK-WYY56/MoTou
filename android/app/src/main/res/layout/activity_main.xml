@@ -32,7 +32,7 @@
                     android:id="@+id/tv_app_title"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="思骑CarPlay"
+                    android:text="摩投"
                     android:textColor="@color/diplay_text_primary"
                     android:textSize="24sp"
                     android:textStyle="bold" />

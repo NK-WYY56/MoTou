@@ -3,7 +3,7 @@ import Network
 import NetworkExtension
 import UIKit
 
-/// 思骑CarPlay 主界面（复刻 Android 思骑CarPlay 三卡片架构）：
+/// 摩投 主界面（复刻 Android 摩投 三卡片架构）：
 /// 1 · 连接思骑仪表（一键复制默认密码 12345678 + 自动记住仪表热点名，无需繁琐预设管理）
 /// 2 · 本机 CARPLAY（一键启动/断开 + 全屏预览 + 刷新仪表画面）
 /// 3 · 蓝牙按键控制器（支持蓝牙 HID 方向键/手柄控制器操控 CarPlay）
@@ -140,7 +140,7 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
         wifiPathMonitor.pathUpdateHandler = { [weak self] _ in
             DispatchQueue.main.async { self?.refreshClusterCard() }
         }
-        wifiPathMonitor.start(queue: DispatchQueue(label: "SiQiCarPlay.wifiPath"))
+        wifiPathMonitor.start(queue: DispatchQueue(label: "MoTou.wifiPath"))
 
         NotificationCenter.default.addObserver(self, selector: #selector(willResignActive), name: UIApplication.willResignActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(becameActive), name: UIApplication.didBecomeActiveNotification, object: nil)
@@ -207,7 +207,7 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
         clusterWiFiSSID = savedSSID
     }
 
-    // MARK: - UI Construction (Android 思骑CarPlay 3-card layout)
+    // MARK: - UI Construction (Android 摩投 3-card layout)
 
     private func buildUI() {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -248,7 +248,7 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
 
     private func buildHeaderBar() -> UIView {
         let titleLabel = UILabel()
-        titleLabel.text = "思骑CarPlay"
+        titleLabel.text = "摩投"
         titleLabel.font = .systemFont(ofSize: 24, weight: .bold)
         titleLabel.textColor = SiqiStyle.textPrimary
 
@@ -742,7 +742,7 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
         let viewport = selectedBikePreset.viewportRect(for: selectedVideoMode)
         let safeArea = selectedBikePreset.airPlaySafeArea(for: selectedVideoMode)
         let config = ReceiverConfiguration(
-            name: "思骑CarPlay",
+            name: "摩投",
             manufacturer: selectedBikePreset.manufacturer,
             modelName: selectedBikePreset.modelName,
             address: address,
@@ -954,7 +954,7 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
             "3. 填好与仪表同网段的 IP 地址和子网掩码（如 255.255.255.0），将「路由器」和「DNS」全部留空并存储。\n" +
             "4. 此时高德/音乐继续走 5G，思骑仪表走局域网 Wi-Fi。\n\n" +
             "二、手机息屏放兜里继续投屏：\n" +
-            "1. 首次连通后，前往 iPhone「设置 › 通用 › CarPlay › 思骑CarPlay」。\n" +
+            "1. 首次连通后，前往 iPhone「设置 › 通用 › CarPlay › 摩投」。\n" +
             "2. 打开「锁定时允许 CarPlay」。\n" +
             "3. 保持本 App 设置中「锁屏与后台继续运行」开启即可。"
         let alert = UIAlertController(title: "5G 联网与息屏投屏指引", message: msg, preferredStyle: .alert)
@@ -1149,7 +1149,7 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
             log("后台保持在进入后台时重试成功")
         }
         if keepAlive.isRunning {
-            log("App 已进入后台，思骑CarPlay 继续向仪表推流")
+            log("App 已进入后台，摩投 继续向仪表推流")
         } else {
             log("未开启后台保持，iOS 将挂起应用，已停止连接")
             stop()
@@ -1160,7 +1160,7 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
         let ts = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
         lines.append("\(ts)  \(message)")
         if lines.count > 200 { lines.removeFirst(lines.count - 200) }
-        NSLog("[SiQiCarPlay] %@", message)
+        NSLog("[MoTou] %@", message)
     }
 
     /// 优先加载打包的凯越 KOVE 车标（120×120 PNG），兜底绘制纯色圆角图标。

@@ -3,7 +3,7 @@ import Darwin
 import Security
 
 struct ReceiverConfiguration {
-    var name = "思骑CarPlay"
+    var name = "摩投"
     var manufacturer = "Kove"
     var modelName = "Kove-450RR-CarPlay"
     static let discoveryType = "_tds-carkit._tcp."

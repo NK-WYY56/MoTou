@@ -28,7 +28,7 @@ import java.util.HashMap;
  */
 public class CarPlayDongleManager {
     private static final String TAG = "CarPlayDongleMgr";
-    private static final String ACTION_USB_PERMISSION = "com.nkwyy56.siqicarplay.USB_PERMISSION";
+    private static final String ACTION_USB_PERMISSION = "com.nkwyy56.motou.USB_PERMISSION";
 
     public static final int CARLINKIT_VID = 0x1314;
     public static final int MAGIC_HEADER = 0x55AA55AA;

@@ -10,7 +10,7 @@ import VideoToolbox
 ///   -> VideoToolbox Baseline 重编码 -> TCP 15456
 /// - H.264 直传模式：直接将解密后的 Annex-B H.264 帧（IDR 前补齐 SPS/PPS）推入 TCP 15456
 final class SiqiKoveOutput {
-    private let queue = DispatchQueue(label: "SiQiCarPlay.siqiKove", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "MoTou.siqiKove", qos: .userInitiated)
     private var session: Session?
 
     deinit { stop() }

@@ -428,7 +428,7 @@ public class SettingsActivity extends Activity {
 
     private void showOpenSourceCreditsDialog() {
         String msg =
-                "思骑CarPlay 遵循以下开源项目原始协议并致谢：\n\n" +
+                "摩投 遵循以下开源项目原始协议并致谢：\n\n" +
                 "1. DiPlay (GNU GPL-3.0)\n" +
                 "   • 仓库: https://github.com/shihabal3amri/DiPlay\n" +
                 "   • 作用: 提供无外置盒子 Android 原生无线/有线 CarPlay 接收引擎 (:common 与 :shared)\n\n" +

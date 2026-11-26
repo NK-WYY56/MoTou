@@ -41,7 +41,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Minimalist main entry for 思骑CarPlay aligned with DiPlay's visual language.
+ * Minimalist main entry for 摩投 aligned with DiPlay's visual language.
  * Keeps only the 3 rider workflows on home: Cluster connection, iPhone CarPlay,
  * and Bluetooth handlebar key controller. All tuning & utilities live in [SettingsActivity].
  */

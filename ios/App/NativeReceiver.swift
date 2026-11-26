@@ -4,7 +4,7 @@ import CoreGraphics
 
 /// 原生 CarPlay 接收与思骑仪表投屏调度核心（所有会话状态串行于内部 queue，UI 回调始终派发回主线程）。
 final class NativeReceiver {
-    private let queue = DispatchQueue(label: "SiQiCarPlay.receiver")
+    private let queue = DispatchQueue(label: "MoTou.receiver")
     private var listener: NWListener?
     private var connections: [UUID: NWConnection] = [:]
     private var sessions: [UUID: SessionState] = [:]
@@ -121,7 +121,7 @@ final class NativeReceiver {
                             let service = NetService(domain: "local.", type: ReceiverConfiguration.discoveryType,
                                 name: configuration.name, port: Int32(actualPort))
                             service.setTXTRecord(NetService.data(fromTXTRecord: [
-                                "app": Data("SiQiCarPlay".utf8), "deviceid": Data(configuration.deviceID.utf8)]))
+                                "app": Data("MoTou".utf8), "deviceid": Data(configuration.deviceID.utf8)]))
                             self.discoveryService?.stop(); self.discoveryService = service; service.publish()
                         }
                         onReady?(actualPort)

@@ -3,7 +3,7 @@ import GameController
 import MediaPlayer
 import UIKit
 
-/// 蓝牙手把按键映射动作（与 Android 思骑CarPlay HandlebarKeyBridge 保持一致）。
+/// 蓝牙手把按键映射动作（与 Android 摩投 HandlebarKeyBridge 保持一致）。
 enum SiqiKeyAction: Sendable {
     case up
     case down
@@ -346,7 +346,7 @@ final class SiqiHandlebarController {
             return .success
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = [
-            MPMediaItemPropertyTitle: "思骑CarPlay · 手把媒体按键控制",
+            MPMediaItemPropertyTitle: "摩投 · 手把媒体按键控制",
             MPMediaItemPropertyArtist: "上一曲=上 · 下一曲=下 · 播放=确认",
             MPNowPlayingInfoPropertyPlaybackRate: 1.0
         ]

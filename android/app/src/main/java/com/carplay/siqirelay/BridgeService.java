@@ -97,11 +97,11 @@ public class BridgeService extends Service {
         if (enabled) {
             if (screenStreamer != null) screenStreamer.stop();
             if (virtualDisplayStreamer != null) virtualDisplayStreamer.start();
-            updateNotification("思骑CarPlay 服务运行中");
+            updateNotification("摩投 服务运行中");
         } else {
             if (virtualDisplayStreamer != null) virtualDisplayStreamer.stop();
             if (screenStreamer != null) screenStreamer.start();
-            updateNotification("思骑CarPlay 服务运行中");
+            updateNotification("摩投 服务运行中");
         }
     }
 
@@ -245,7 +245,7 @@ public class BridgeService extends Service {
             virtualDisplayStreamer = new VirtualDisplayStreamer(this, clusterServer);
             screenStreamer = new ScreenStreamer(this, clusterServer);
             virtualDisplayStreamer.start();
-            updateNotification("思骑CarPlay 服务运行中");
+            updateNotification("摩投 服务运行中");
         } catch (Exception e) {
             Log.w(TAG, "Video streamer init notice: " + e.getMessage());
         }
@@ -259,23 +259,23 @@ public class BridgeService extends Service {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                     int type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
                             | ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC;
-                    startForeground(NOTIF_ID, buildNotification("思骑CarPlay 服务运行中"), type);
+                    startForeground(NOTIF_ID, buildNotification("摩投 服务运行中"), type);
                 } else {
-                    startForeground(NOTIF_ID, buildNotification("思骑CarPlay 服务运行中"),
+                    startForeground(NOTIF_ID, buildNotification("摩投 服务运行中"),
                             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE | ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
                 }
             } else {
-                startForeground(NOTIF_ID, buildNotification("思骑CarPlay 服务运行中"));
+                startForeground(NOTIF_ID, buildNotification("摩投 服务运行中"));
             }
         } catch (Exception e) {
-            try { startForeground(NOTIF_ID, buildNotification("思骑CarPlay 服务运行中")); } catch (Exception ignored) {}
+            try { startForeground(NOTIF_ID, buildNotification("摩投 服务运行中")); } catch (Exception ignored) {}
         }
     }
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel chan = new NotificationChannel(
-                    CHANNEL_ID, "思骑CarPlay 服务", NotificationManager.IMPORTANCE_LOW);
+                    CHANNEL_ID, "摩投 服务", NotificationManager.IMPORTANCE_LOW);
             NotificationManager nm = getSystemService(NotificationManager.class);
             if (nm != null) nm.createNotificationChannel(chan);
         }
@@ -289,7 +289,7 @@ public class BridgeService extends Service {
         Notification.Builder b = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ?
                 new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this);
 
-        return b.setContentTitle("思骑CarPlay")
+        return b.setContentTitle("摩投")
                 .setContentText(text)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentIntent(pi)

@@ -14,7 +14,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.nkwyy56.siqicarplay"
+        applicationId = "com.nkwyy56.motou"
         minSdk = 26
         targetSdk = 34
         versionCode = 20

@@ -523,7 +523,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="思骑CarPlay 遵循原始开源协议并致敬以下开源项目：\n• DiPlay (github.com/shihabal3amri/DiPlay, GPL-3.0)\n• xcertplay (github.com/shilapi/xcertplay, GPL-3.0)\n• DiAuto UI (github.com/shihabal3amri/DiAuto, AGPL-3.0)\n• LIVI / Showcase / SpeexDSP / Concentus / JmDNS / Bouncy Castle"
+                android:text="摩投 遵循原始开源协议并致敬以下开源项目：\n• DiPlay (github.com/shihabal3amri/DiPlay, GPL-3.0)\n• xcertplay (github.com/shilapi/xcertplay, GPL-3.0)\n• DiAuto UI (github.com/shihabal3amri/DiAuto, AGPL-3.0)\n• LIVI / Showcase / SpeexDSP / Concentus / JmDNS / Bouncy Castle"
                 android:textColor="@color/diplay_text_secondary"
                 android:textSize="12sp"
                 android:lineSpacingMultiplier="1.25" />

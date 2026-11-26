@@ -1,6 +1,6 @@
 import UIKit
 
-/// Visual design system mirroring Android 思骑CarPlay (DiPlayStyle.java):
+/// Visual design system mirroring Android 摩投 (DiPlayStyle.java):
 /// calm blue-slate day/night palette, 20pt rounded cards with 1pt outline,
 /// pill status chips, uppercase colored kickers, and crisp rounded buttons.
 enum SiqiStyle {

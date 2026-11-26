@@ -279,7 +279,7 @@ public class VirtualDisplayStreamer implements KoveClusterServer.VideoControlCal
             waitingOverlay.addView(spinner, spLp);
 
             TextView tvTitle = new TextView(getContext());
-            tvTitle.setText("思骑CarPlay · 等待连接");
+            tvTitle.setText("摩投 · 等待连接");
             tvTitle.setTextColor(Color.parseColor("#F1F5FC"));
             tvTitle.setTextSize(22f);
             tvTitle.setTypeface(Typeface.DEFAULT_BOLD);

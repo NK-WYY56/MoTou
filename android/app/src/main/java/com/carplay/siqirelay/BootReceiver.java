@@ -59,7 +59,7 @@ public class BootReceiver extends BroadcastReceiver {
             if (nm == null) return;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 nm.createNotificationChannel(new NotificationChannel(
-                        BOOT_CHANNEL_ID, "思骑CarPlay 开机启动提示", NotificationManager.IMPORTANCE_DEFAULT));
+                        BOOT_CHANNEL_ID, "摩投 开机启动提示", NotificationManager.IMPORTANCE_DEFAULT));
             }
             Intent openIntent = new Intent(context, MainActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -70,7 +70,7 @@ public class BootReceiver extends BroadcastReceiver {
                     : new Notification.Builder(context);
             Notification notif = builder
                     .setSmallIcon(android.R.drawable.ic_dialog_info)
-                    .setContentTitle("思骑CarPlay 待就绪")
+                    .setContentTitle("摩投 待就绪")
                     .setContentText("受系统后台限制，点击此处即可启动无线 CarPlay 互联")
                     .setAutoCancel(true)
                     .setContentIntent(pi)
