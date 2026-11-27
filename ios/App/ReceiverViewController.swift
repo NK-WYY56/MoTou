@@ -36,12 +36,16 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
         lastActionSummary: nil
     )
     private var liveCanvasSize: (width: Int, height: Int) = (1280, 560)
+    private var liveStreamSize: (width: Int, height: Int) = (1280, 640)
     private var sessionHasVehicleButton = false
     private var lines: [String] = []
 
-    // Persisted settings (only SiQi / Kove 450RR preset retained; extensible via SiqiBikePreset)
+    // Persisted settings (Kove 450RR calibrated preset + custom resolution tuner)
     var selectedBikePreset: SiqiBikePreset = .kove450RR {
         didSet { UserDefaults.standard.set(selectedBikePreset.rawValue, forKey: "siqiBikePreset") }
+    }
+    var customDisplayProfile: SiqiCustomDisplayProfile = SiqiCustomDisplayProfile.loadSaved() {
+        didSet { customDisplayProfile.save() }
     }
     var selectedIconPreset: SiqiIconSizePreset = .large {
         didSet { UserDefaults.standard.set(selectedIconPreset.rawValue, forKey: "siqiIconSizePresetV2") }
@@ -85,6 +89,9 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
     private let clusterDescLabel = SiqiStyle.makeSecondaryLabel("", size: 13)
     private let clusterStatsLabel = SiqiStyle.makeSecondaryLabel("", size: 12)
     private let wifiSSIDField = UITextField()
+    private let wifiSpaceWarningRow = UIStackView()
+    private let wifiSpaceWarningLabel = SiqiStyle.makeSecondaryLabel("⚠️ 检测到热点名称包含空格，思骑仪表热点通常不含空格", size: 12)
+    private let fixWifiSpaceButton = SiqiButton(title: "一键去空格", variant: .secondary, fontSize: 11, height: 28)
     private let connectWiFiButton = SiqiButton(title: "复制密码 12345678 · 连仪表 Wi-Fi", variant: .secondary, fontSize: 13, height: 42)
 
     // Card 2: Self-hosted CarPlay
@@ -305,11 +312,32 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
         wifiSSIDField.heightAnchor.constraint(equalToConstant: 42).isActive = true
         wifiSSIDField.addAction(UIAction { [weak self] _ in
             guard let self else { return }
-            self.clusterWiFiSSID = (self.wifiSSIDField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let raw = self.wifiSSIDField.text ?? ""
+            self.clusterWiFiSSID = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.updateWiFiSpaceWarning(for: raw)
         }, for: .editingChanged)
         wifiSSIDField.addTarget(wifiSSIDField, action: #selector(UIResponder.resignFirstResponder), for: .editingDidEndOnExit)
         card.stack.setCustomSpacing(10, after: clusterStatsLabel)
         card.stack.addArrangedSubview(wifiSSIDField)
+
+        wifiSpaceWarningLabel.textColor = SiqiStyle.warning
+        fixWifiSpaceButton.setContentHuggingPriority(.required, for: .horizontal)
+        fixWifiSpaceButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        fixWifiSpaceButton.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            let cleaned = Self.removingSpaces(self.wifiSSIDField.text ?? "")
+            self.wifiSSIDField.text = cleaned
+            self.clusterWiFiSSID = cleaned
+            self.updateWiFiSpaceWarning(for: cleaned)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }, for: .touchUpInside)
+        wifiSpaceWarningRow.axis = .horizontal
+        wifiSpaceWarningRow.alignment = .center
+        wifiSpaceWarningRow.spacing = 8
+        wifiSpaceWarningRow.addArrangedSubview(wifiSpaceWarningLabel)
+        wifiSpaceWarningRow.addArrangedSubview(fixWifiSpaceButton)
+        wifiSpaceWarningRow.isHidden = !Self.containsSpace(clusterWiFiSSID)
+        card.stack.addArrangedSubview(wifiSpaceWarningRow)
 
         connectWiFiButton.addAction(UIAction { [weak self] _ in
             self?.showWiFiConnectionGuide()
@@ -519,7 +547,7 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
             clusterDescLabel.text = "已建立无线投屏通道\(ipText)，仪表画面实时同步中"
             if clusterSnapshot.framesStreamed > 0 {
                 let kb = clusterSnapshot.bytesStreamed / 1024
-                clusterStatsLabel.text = "输出 1280×640 @ 30 FPS · 已推 \(clusterSnapshot.framesStreamed) 帧（\(kb) KB）"
+                clusterStatsLabel.text = "输出 \(liveStreamSize.width)×\(liveStreamSize.height) @ 30 FPS · 已推 \(clusterSnapshot.framesStreamed) 帧（\(kb) KB）"
                 clusterStatsLabel.isHidden = false
             } else {
                 clusterStatsLabel.text = "视频通道已连接，等待 CarPlay 首帧…"
@@ -672,12 +700,33 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
         }
     }
 
+    private static func containsSpace(_ text: String) -> Bool {
+        text.contains(" ") || text.contains("\u{3000}") || text.contains("\t")
+    }
+
+    private static func removingSpaces(_ text: String) -> String {
+        text.replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "\u{3000}", with: "")
+            .replacingOccurrences(of: "\t", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func updateWiFiSpaceWarning(for text: String) {
+        wifiSpaceWarningRow.isHidden = !Self.containsSpace(text)
+    }
+
     private func resolveSSIDThenStart(address: String, identity: AccessoryIdentity) {
         view.endEditing(true)
-        let typedSSID = (wifiSSIDField.text ?? clusterWiFiSSID).trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawInput = wifiSSIDField.text ?? clusterWiFiSSID
+        let typedSSID = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
         if !typedSSID.isEmpty {
+            if Self.containsSpace(rawInput) {
+                confirmSpaceInSSID(address: address, ssid: typedSSID, identity: identity)
+                return
+            }
             clusterWiFiSSID = typedSSID
             wifiSSIDField.text = typedSSID
+            updateWiFiSpaceWarning(for: typedSSID)
             startSessionWithResolvedWiFi(address: address, ssid: typedSSID, password: Self.defaultSiqiPassword, identity: identity)
             return
         }
@@ -691,6 +740,7 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
             if !clean.isEmpty {
                 self.clusterWiFiSSID = clean
                 self.wifiSSIDField.text = clean
+                self.updateWiFiSpaceWarning(for: clean)
                 self.startSessionWithResolvedWiFi(address: address, ssid: clean, password: Self.defaultSiqiPassword, identity: identity)
             } else {
                 self.promptForClusterSSID(address: address, identity: identity)
@@ -707,10 +757,35 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
         }
     }
 
+    private func confirmSpaceInSSID(address: String, ssid: String, identity: AccessoryIdentity) {
+        let cleaned = Self.removingSpaces(ssid)
+        let alert = UIAlertController(
+            title: "检测到 Wi-Fi 名称含空格",
+            message: "当前填写的热点名为「\(ssid)」，中间包含空格（常见于输入法打完下划线后自动补空格）。\n\n思骑仪表热点通常不含空格（如「\(cleaned)」），多一个空格会导致 45 秒后提示「未收到 CarPlay 控制连接」。",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "去除空格并启动（推荐）", style: .default) { [weak self] _ in
+            guard let self else { return }
+            self.clusterWiFiSSID = cleaned
+            self.wifiSSIDField.text = cleaned
+            self.updateWiFiSpaceWarning(for: cleaned)
+            self.startSessionWithResolvedWiFi(address: address, ssid: cleaned, password: Self.defaultSiqiPassword, identity: identity)
+        })
+        alert.addAction(UIAlertAction(title: "保留空格继续启动", style: .default) { [weak self] _ in
+            guard let self else { return }
+            self.clusterWiFiSSID = ssid
+            self.wifiSSIDField.text = ssid
+            self.updateWiFiSpaceWarning(for: ssid)
+            self.startSessionWithResolvedWiFi(address: address, ssid: ssid, password: Self.defaultSiqiPassword, identity: identity)
+        })
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        present(alert, animated: true)
+    }
+
     private func promptForClusterSSID(address: String, identity: AccessoryIdentity) {
         let alert = UIAlertController(
             title: "请输入当前仪表 Wi-Fi 名称",
-            message: "受 iOS / LiveContainer 限制无法自动读取当前 Wi-Fi 名称，但本机 iAP2 无线 CarPlay 握手必须携带热点名。\n\n仅需输入一次（如 CQKY_xxxx），后续自动记住，密码默认 12345678。",
+            message: "受 iOS / LiveContainer 限制无法自动读取当前 Wi-Fi 名称，但本机 iAP2 无线 CarPlay 握手必须携带热点名。\n\n仅需输入一次（如 CQKY_xxxx，注意不要有空格），后续自动记住，密码默认 12345678。",
             preferredStyle: .alert
         )
         alert.addTextField { field in
@@ -722,14 +797,20 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
         alert.addAction(UIAlertAction(title: "取消", style: .cancel))
         alert.addAction(UIAlertAction(title: "确认并启动", style: .default) { [weak self] _ in
             guard let self else { return }
-            let input = (alert.textFields?.first?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let raw = alert.textFields?.first?.text ?? ""
+            let input = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !input.isEmpty else {
                 self.sessionTitleLabel.text = "请输入当前已连接的仪表 Wi-Fi 名称"
                 self.sessionTitleLabel.textColor = SiqiStyle.danger
                 return
             }
+            if Self.containsSpace(raw) {
+                self.confirmSpaceInSSID(address: address, ssid: input, identity: identity)
+                return
+            }
             self.clusterWiFiSSID = input
             self.wifiSSIDField.text = input
+            self.updateWiFiSpaceWarning(for: input)
             self.startSessionWithResolvedWiFi(address: address, ssid: input, password: Self.defaultSiqiPassword, identity: identity)
         })
         present(alert, animated: true)
@@ -738,9 +819,11 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
     private func startSessionWithResolvedWiFi(address: String, ssid: String, password: String, identity: AccessoryIdentity) {
         guard !running else { return }
 
-        let canvas = selectedBikePreset.carPlayCanvasSize(for: selectedIconPreset, videoMode: selectedVideoMode)
-        let viewport = selectedBikePreset.viewportRect(for: selectedVideoMode)
-        let safeArea = selectedBikePreset.airPlaySafeArea(for: selectedVideoMode)
+        let plan = selectedBikePreset.resolvePlan(
+            icon: selectedIconPreset,
+            videoMode: selectedVideoMode,
+            customProfile: customDisplayProfile
+        )
         let config = ReceiverConfiguration(
             name: "摩投",
             manufacturer: selectedBikePreset.manufacturer,
@@ -748,8 +831,8 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
             address: address,
             ssid: ssid,
             password: password,
-            width: canvas.width,
-            height: canvas.height,
+            width: plan.carPlayWidth,
+            height: plan.carPlayHeight,
             maxFPS: 30,
             videoCodec: .h264,
             wifiChannel: 36,
@@ -758,14 +841,16 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
             deviceID: ReceiverConfiguration.persistentDeviceID(),
             siqiKoveEnabled: true,
             siqiKoveVideoMode: selectedVideoMode,
-            disableSafeAreaSquareCorners: safeArea.disableSafeAreaSquareCorners,
-            safeAreaTopPixels: safeArea.top,
-            safeAreaBottomPixels: safeArea.bottom,
-            drawUIOutsideSafeArea: safeArea.drawOutside,
-            viewportTopPixels: viewport.top,
-            viewportHeightPixels: viewport.height,
+            siqiStreamWidth: plan.streamWidth,
+            siqiStreamHeight: plan.streamHeight,
+            disableSafeAreaSquareCorners: plan.disableSafeAreaSquareCorners,
+            safeAreaTopPixels: plan.safeAreaTop,
+            safeAreaBottomPixels: plan.safeAreaBottom,
+            drawUIOutsideSafeArea: plan.drawOutside,
+            viewportTopPixels: plan.viewportTop,
+            viewportHeightPixels: plan.viewportHeight,
             overscanX: selectedBikePreset.overscanX,
-            widthPhysicalMM: selectedIconPreset.widthPhysicalMM,
+            widthPhysicalMM: plan.widthPhysicalMM,
             oemIconPNG: Self.koveOEMIconPNG,
             oemIconLabel: selectedBikePreset.oemLabel
         )
@@ -777,9 +862,10 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
             return
         }
 
-        log("使用仪表热点「\(ssid)」启动本机 CarPlay（地址 \(address)，默认密码 12345678）")
+        log("使用仪表热点「\(ssid)」启动本机 CarPlay（地址 \(address)，默认密码 12345678，推流 \(plan.streamWidth)×\(plan.streamHeight)）")
 
-        liveCanvasSize = canvas
+        liveCanvasSize = (plan.carPlayWidth, plan.carPlayHeight)
+        liveStreamSize = (plan.streamWidth, plan.streamHeight)
         updateInlineVideoAspect()
         sessionHasVehicleButton = CarPlayInfo.vehicleButtonSize(in: config) != nil
         if isKeepAliveEnabled { keepAlive.start() }
@@ -971,7 +1057,14 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
     // MARK: - Inline & Fullscreen Video Preview
 
     private func updateInlineVideoAspect() {
-        let size = running ? liveCanvasSize : selectedBikePreset.carPlayCanvasSize(for: selectedIconPreset, videoMode: selectedVideoMode)
+        let plan = selectedBikePreset.resolvePlan(
+            icon: selectedIconPreset,
+            videoMode: selectedVideoMode,
+            customProfile: customDisplayProfile
+        )
+        let size: (width: Int, height: Int) = running
+            ? liveCanvasSize
+            : (width: plan.carPlayWidth, height: plan.carPlayHeight)
         videoHeightConstraint?.isActive = false
         let c = inlineVideoContainer.heightAnchor.constraint(
             equalTo: inlineVideoContainer.widthAnchor,

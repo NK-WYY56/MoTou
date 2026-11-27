@@ -17,6 +17,8 @@ final class SiqiKoveOutput {
 
     func start(
         videoMode: SiqiVideoMode,
+        streamWidth: Int = SiqiKoveProtocol.width,
+        streamHeight: Int = SiqiKoveProtocol.height,
         viewportTop: Int = 78,
         viewportHeight: Int = 484,
         overscanX: Double = 1.0,
@@ -29,6 +31,8 @@ final class SiqiKoveOutput {
         let next = Session(
             queue: queue,
             videoMode: videoMode,
+            streamWidth: streamWidth,
+            streamHeight: streamHeight,
             viewportTop: viewportTop,
             viewportHeight: viewportHeight,
             overscanX: overscanX,
@@ -60,6 +64,8 @@ final class SiqiKoveOutput {
     private final class Session: @unchecked Sendable {
         let queue: DispatchQueue
         let videoMode: SiqiVideoMode
+        let streamWidth: Int
+        let streamHeight: Int
         let viewportTop: Int
         let viewportHeight: Int
         let overscanX: Double
@@ -94,6 +100,8 @@ final class SiqiKoveOutput {
         init(
             queue: DispatchQueue,
             videoMode: SiqiVideoMode,
+            streamWidth: Int,
+            streamHeight: Int,
             viewportTop: Int,
             viewportHeight: Int,
             overscanX: Double,
@@ -104,9 +112,13 @@ final class SiqiKoveOutput {
         ) {
             self.queue = queue
             self.videoMode = videoMode
-            let clampedTop = max(0, min(viewportTop, SiqiKoveProtocol.height - 64))
+            let safeW = max(320, min(1920, (streamWidth / 2) * 2))
+            let safeH = max(240, min(1200, (streamHeight / 2) * 2))
+            self.streamWidth = safeW
+            self.streamHeight = safeH
+            let clampedTop = max(0, min(viewportTop, safeH - 64))
             self.viewportTop = clampedTop
-            self.viewportHeight = max(64, min(viewportHeight, SiqiKoveProtocol.height - clampedTop))
+            self.viewportHeight = max(64, min(viewportHeight, safeH - clampedTop))
             self.overscanX = max(1.0, overscanX)
             self.onState = onState
             self.onSnapshot = onSnapshot
@@ -158,8 +170,8 @@ final class SiqiKoveOutput {
             }
 
             do {
-                try server.start()
-                onLog("思骑/凯越 450RR 推流模式：\(videoMode.title) · 输出 \(SiqiKoveProtocol.width)×\(SiqiKoveProtocol.height)（有效视口 y=\(viewportTop), h=\(viewportHeight)）@ 30 FPS")
+                try server.start(videoWidth: streamWidth, videoHeight: streamHeight)
+                onLog("思骑仪表推流模式：\(videoMode.title) · 输出 \(streamWidth)×\(streamHeight)（有效视口 y=\(viewportTop), h=\(viewportHeight)）@ 30 FPS")
             } catch {
                 onLog("思骑服务启动失败：\(error.localizedDescription)")
                 DispatchQueue.main.async { [weak self] in
@@ -347,8 +359,8 @@ final class SiqiKoveOutput {
                 if encoder == nil {
                     guard now - lastCodecFailure >= 0.5 else { return nil }
                     encoder = try H264Encoder(
-                        width: SiqiKoveProtocol.width,
-                        height: SiqiKoveProtocol.height,
+                        width: streamWidth,
+                        height: streamHeight,
                         fps: 30,
                         bitrate: 2_500_000
                     ) { [weak self] result in
@@ -413,8 +425,8 @@ final class SiqiKoveOutput {
         /// 1280×640 黑色底图的居中有效视口（凯越 450RR：y=78..562, h=484，上下 78px 黑边隐藏于仪表上下状态栏），
         /// 抵消仪表纵横比拉伸实现 1:1 图标比例、四边等距留白与直角无圆角黑边；全程纯 CPU 运算，锁屏/后台稳定运行。
         private func fittedImage(_ image: CVPixelBuffer) throws -> CVPixelBuffer {
-            let width = SiqiKoveProtocol.width
-            let height = SiqiKoveProtocol.height
+            let width = streamWidth
+            let height = streamHeight
             let srcWidth = CVPixelBufferGetWidth(image)
             let srcHeight = CVPixelBufferGetHeight(image)
             let isIdentity = srcWidth == width

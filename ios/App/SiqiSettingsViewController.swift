@@ -6,6 +6,7 @@ protocol SiqiSettingsDelegate: AnyObject {
     var isCarPlayRunning: Bool { get }
     var isMFiIdentityLoaded: Bool { get }
     var selectedBikePreset: SiqiBikePreset { get set }
+    var customDisplayProfile: SiqiCustomDisplayProfile { get set }
     var selectedIconPreset: SiqiIconSizePreset { get set }
     var selectedVideoMode: SiqiVideoMode { get set }
     var selectedAppearance: ReceiverConfiguration.Appearance { get set }
@@ -130,7 +131,7 @@ final class SiqiSettingsViewController: UIViewController {
         card.stack.spacing = 10
         card.stack.addArrangedSubview(SiqiStyle.makeKicker("仪表画面参数"))
 
-        // 车型仪表预设：点击进入二级菜单切换（目前仅思骑出行 / 凯越 450RR）
+        // 车型仪表预设：点击进入二级菜单切换（凯越 450RR / 自定义分辨率）
         card.stack.addArrangedSubview(SiqiStyle.makeSectionTitle("车型仪表预设"))
         bikePresetMenuButton.contentHorizontalAlignment = .fill
         bikePresetMenuButton.addAction(UIAction { [weak self] _ in
@@ -138,6 +139,13 @@ final class SiqiSettingsViewController: UIViewController {
         }, for: .touchUpInside)
         card.stack.addArrangedSubview(bikePresetMenuButton)
         card.stack.addArrangedSubview(bikeDescLabel)
+
+        // 手动调节分辨率 / 保存与导出（解决其他思骑仪表黑屏与拉伸）
+        let tunerBtn = SiqiButton(title: "手动调节分辨率 / 保存与导出（黑屏适配）  ›", variant: .secondary, fontSize: 13, height: 42)
+        tunerBtn.addAction(UIAction { [weak self] _ in
+            self?.openResolutionTuner()
+        }, for: .touchUpInside)
+        card.stack.addArrangedSubview(tunerBtn)
 
         // Icon size (3 options matching Android: 1024×448 / 1280×560 / 1536×672)
         card.stack.addArrangedSubview(spacer(4))
@@ -321,7 +329,7 @@ final class SiqiSettingsViewController: UIViewController {
 
         let githubBtn = SiqiButton(title: "GitHub 开源主页", variant: .secondary, fontSize: 13, height: 42)
         githubBtn.addAction(UIAction { [weak self] _ in
-            self?.openExternalURL("https://github.com/NK-WYY56/SiQiCarPlay")
+            self?.openExternalURL("https://github.com/NK-WYY56/MoTou")
         }, for: .touchUpInside)
 
         let douyinBtn = SiqiButton(title: "作者抖音主页", variant: .secondary, fontSize: 13, height: 42)
@@ -353,13 +361,15 @@ final class SiqiSettingsViewController: UIViewController {
             btn.apply(variant: .segmented(selected: idx == d.selectedAppearance.rawValue))
         }
 
-        let canvas = d.selectedBikePreset.carPlayCanvasSize(for: d.selectedIconPreset, videoMode: d.selectedVideoMode)
-        let viewport = d.selectedBikePreset.viewportRect(for: d.selectedVideoMode)
-        let safeArea = d.selectedBikePreset.airPlaySafeArea(for: d.selectedVideoMode)
-        if safeArea.disableSafeAreaSquareCorners {
-            applyHintLabel.text = "当前参数：CarPlay \(canvas.width)×\(canvas.height) → 仪表 1280×\(viewport.height)（上下各 \(viewport.top)px）· 直角无圆角 · \(d.selectedIconPreset.shortTitle)"
+        let plan = d.selectedBikePreset.resolvePlan(
+            icon: d.selectedIconPreset,
+            videoMode: d.selectedVideoMode,
+            customProfile: d.customDisplayProfile
+        )
+        if plan.disableSafeAreaSquareCorners {
+            applyHintLabel.text = "当前参数：CarPlay \(plan.carPlayWidth)×\(plan.carPlayHeight) → 仪表推流 \(plan.streamWidth)×\(plan.streamHeight)（视口 y=\(plan.viewportTop), h=\(plan.viewportHeight)）· \(plan.widthPhysicalMM)mm"
         } else {
-            applyHintLabel.text = "当前参数：CarPlay \(canvas.width)×\(canvas.height) 直传 → 仪表 1280×640（安全区 上\(safeArea.top)/下\(safeArea.bottom)）· \(d.selectedIconPreset.shortTitle)"
+            applyHintLabel.text = "当前参数：CarPlay \(plan.carPlayWidth)×\(plan.carPlayHeight) → 仪表推流 \(plan.streamWidth)×\(plan.streamHeight)（安全区 上\(plan.safeAreaTop)/下\(plan.safeAreaBottom)）· \(plan.widthPhysicalMM)mm"
         }
         applyHintLabel.textColor = SiqiStyle.textSecondary
 
@@ -397,6 +407,22 @@ final class SiqiSettingsViewController: UIViewController {
         let vc = SiqiBikePresetPickerViewController(selected: d.selectedBikePreset) { [weak self] chosen in
             self?.delegate?.selectedBikePreset = chosen
             self?.refreshState()
+        }
+        navigationController?.pushViewController(vc, animated: true)
+    }
+
+    private func openResolutionTuner() {
+        guard let d = delegate else { return }
+        let vc = SiqiResolutionTunerViewController(
+            initialProfile: d.customDisplayProfile,
+            videoMode: d.selectedVideoMode,
+            isRunning: d.isCarPlayRunning
+        ) { [weak self] savedProfile in
+            guard let self, let delegate = self.delegate else { return }
+            delegate.customDisplayProfile = savedProfile
+            delegate.selectedBikePreset = .custom
+            delegate.applyDisplaySettingsAndRestartIfNeeded()
+            self.refreshState()
         }
         navigationController?.pushViewController(vc, animated: true)
     }
@@ -548,10 +574,342 @@ final class SiqiBikePresetPickerViewController: UIViewController {
         futureCard.stack.spacing = 6
         futureCard.stack.addArrangedSubview(SiqiStyle.makeKicker("后续车型扩展"))
         futureCard.stack.addArrangedSubview(SiqiStyle.makeSecondaryLabel(
-            "当前版本精简为仅保留「思骑出行 / 凯越 450RR」专属实测预设（16:7 画布 1280×560 → 仪表 1280×484 上下各 78px 居中视口、直角无圆角黑边、四边等距留白与 1:1 图标比例矫正）。后续将在此二级菜单中陆续增加其他思骑出行车型仪表预设。",
+            "内置「思骑出行 / 凯越 450RR」实测预设，并新增「自定义分辨率」用于其他思骑仪表黑屏/拉伸调试。如需手动微调分辨率并导出实测参数，请返回上一页点「手动调节分辨率 / 保存与导出」。",
             size: 13
         ))
         stack.addArrangedSubview(futureCard)
+    }
+}
+
+/// 手动调节思骑仪表分辨率、视口偏移、保存生效与导出配置的调试页。
+final class SiqiResolutionTunerViewController: UIViewController {
+    private var profile: SiqiCustomDisplayProfile
+    private let videoMode: SiqiVideoMode
+    private let isRunning: Bool
+    private let onSaveAndApply: (SiqiCustomDisplayProfile) -> Void
+
+    private let bikeNameField = UITextField()
+    private let streamWidthField = UITextField()
+    private let streamHeightField = UITextField()
+    private let carPlayWidthField = UITextField()
+    private let carPlayHeightField = UITextField()
+    private let viewportTopField = UITextField()
+    private let viewportHeightField = UITextField()
+    private let physicalMMField = UITextField()
+    private let squareCornersSwitch = UISwitch()
+    private let previewLabel = SiqiStyle.makeSecondaryLabel("", size: 12)
+    private let statusLabel = SiqiStyle.makeSecondaryLabel("", size: 12)
+
+    init(
+        initialProfile: SiqiCustomDisplayProfile,
+        videoMode: SiqiVideoMode,
+        isRunning: Bool,
+        onSaveAndApply: @escaping (SiqiCustomDisplayProfile) -> Void
+    ) {
+        self.profile = initialProfile.sanitized()
+        self.videoMode = videoMode
+        self.isRunning = isRunning
+        self.onSaveAndApply = onSaveAndApply
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = SiqiStyle.windowBackground
+        buildLayout()
+        syncFieldsFromProfile()
+    }
+
+    private func buildLayout() {
+        let scroll = UIScrollView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.alwaysBounceVertical = true
+        scroll.keyboardDismissMode = .interactive
+        view.addSubview(scroll)
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 14
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        scroll.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            scroll.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+
+            stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 16),
+            stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -32),
+            stack.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor, constant: 18),
+            stack.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor, constant: -18)
+        ])
+
+        // Top Bar
+        let backBtn = SiqiButton(title: "‹ 返回", variant: .secondary, fontSize: 14, height: 40)
+        backBtn.setContentHuggingPriority(.required, for: .horizontal)
+        backBtn.addAction(UIAction { [weak self] _ in
+            self?.navigationController?.popViewController(animated: true)
+        }, for: .touchUpInside)
+        let titleLabel = UILabel()
+        titleLabel.text = "手动调节分辨率"
+        titleLabel.font = .systemFont(ofSize: 20, weight: .bold)
+        titleLabel.textColor = SiqiStyle.textPrimary
+        let bar = UIStackView(arrangedSubviews: [backBtn, titleLabel, UIView()])
+        bar.spacing = 12
+        bar.alignment = .center
+        stack.addArrangedSubview(bar)
+
+        // Card 1: Quick Templates (anti-black-screen)
+        let templateCard = SiqiCardView()
+        templateCard.stack.spacing = 8
+        templateCard.stack.addArrangedSubview(SiqiStyle.makeKicker("快捷模板（解决不同仪表黑屏）"))
+        templateCard.stack.addArrangedSubview(SiqiStyle.makeSecondaryLabel(
+            "其他车型连上 15456 但黑屏时，通常是仪表解码器只认特定推流分辨率（常见 800×480 或 1024×600）。先点下方常见模板测试出画，再微调比例与上下留白。",
+            size: 12
+        ))
+        let templates = SiqiCustomDisplayProfile.commonTemplates
+        for chunkStart in stride(from: 0, to: templates.count, by: 2) {
+            let chunk = Array(templates[chunkStart..<min(chunkStart + 2, templates.count)])
+            let buttons: [UIView] = chunk.map { item in
+                let btn = SiqiButton(title: item.label, variant: .secondary, fontSize: 12, height: 38)
+                btn.addAction(UIAction { [weak self] _ in
+                    guard let self else { return }
+                    self.profile = item.profile.sanitized()
+                    self.syncFieldsFromProfile()
+                    self.statusLabel.text = "已填入「\(item.label)」模板，点底部「保存并应用」生效。"
+                    self.statusLabel.textColor = SiqiStyle.accent
+                }, for: .touchUpInside)
+                return btn
+            }
+            let row = UIStackView(arrangedSubviews: buttons)
+            row.axis = .horizontal
+            row.distribution = .fillEqually
+            row.spacing = 8
+            templateCard.stack.addArrangedSubview(row)
+        }
+        stack.addArrangedSubview(templateCard)
+
+        // Card 2: Stream & CarPlay & Viewport fine-tuning
+        let tuneCard = SiqiCardView()
+        tuneCard.stack.spacing = 10
+        tuneCard.stack.addArrangedSubview(SiqiStyle.makeKicker("详细参数微调"))
+
+        styleTextField(bikeNameField, placeholder: "车型备注（如 凯越 321RR）", numeric: false)
+        tuneCard.stack.addArrangedSubview(SiqiStyle.makeSectionTitle("车型备注名（导出时附带）"))
+        tuneCard.stack.addArrangedSubview(bikeNameField)
+
+        tuneCard.stack.addArrangedSubview(SiqiStyle.makeSectionTitle("1. 仪表推流分辨率（69B头与 H.264，防黑屏核心）"))
+        tuneCard.stack.addArrangedSubview(makeStepperRow(label: "推流宽度", field: streamWidthField, step: 16))
+        tuneCard.stack.addArrangedSubview(makeStepperRow(label: "推流高度", field: streamHeightField, step: 16))
+
+        tuneCard.stack.addArrangedSubview(SiqiStyle.makeSectionTitle("2. CarPlay 画布分辨率（防图标拉伸）"))
+        tuneCard.stack.addArrangedSubview(makeStepperRow(label: "画布宽度", field: carPlayWidthField, step: 16))
+        tuneCard.stack.addArrangedSubview(makeStepperRow(label: "画布高度", field: carPlayHeightField, step: 16))
+        let syncCanvasBtn = SiqiButton(title: "画布尺寸同步等于推流分辨率", variant: .secondary, fontSize: 12, height: 34)
+        syncCanvasBtn.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            self.readFieldsIntoProfile()
+            self.profile.carPlayWidth = self.profile.streamWidth
+            self.profile.carPlayHeight = self.profile.streamHeight
+            self.syncFieldsFromProfile()
+        }, for: .touchUpInside)
+        tuneCard.stack.addArrangedSubview(syncCanvasBtn)
+
+        tuneCard.stack.addArrangedSubview(SiqiStyle.makeSectionTitle("3. 有效视口范围（避让上下仪表栏）"))
+        tuneCard.stack.addArrangedSubview(makeStepperRow(label: "顶部偏移 y", field: viewportTopField, step: 2))
+        tuneCard.stack.addArrangedSubview(makeStepperRow(label: "有效高度 h", field: viewportHeightField, step: 2))
+        let fullViewportBtn = SiqiButton(title: "视口铺满整个推流高度（y=0, h=推流高）", variant: .secondary, fontSize: 12, height: 34)
+        fullViewportBtn.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            self.readFieldsIntoProfile()
+            self.profile.viewportTop = 0
+            self.profile.viewportHeight = self.profile.streamHeight
+            self.syncFieldsFromProfile()
+        }, for: .touchUpInside)
+        tuneCard.stack.addArrangedSubview(fullViewportBtn)
+
+        tuneCard.stack.addArrangedSubview(SiqiStyle.makeSectionTitle("4. 图标大小与直角边角"))
+        tuneCard.stack.addArrangedSubview(makeStepperRow(label: "物理宽 mm", field: physicalMMField, step: 10))
+
+        SiqiStyle.styleSwitch(squareCornersSwitch)
+        squareCornersSwitch.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            self.readFieldsIntoProfile()
+            self.profile.disableSafeAreaSquareCorners = self.squareCornersSwitch.isOn
+            self.updatePreviewText()
+        }, for: .valueChanged)
+        let cornerTitle = UILabel()
+        cornerTitle.text = "直角无圆角黑边（cornerMasks）"
+        cornerTitle.font = .systemFont(ofSize: 14, weight: .semibold)
+        cornerTitle.textColor = SiqiStyle.textPrimary
+        let cornerRow = UIStackView(arrangedSubviews: [cornerTitle, UIView(), squareCornersSwitch])
+        cornerRow.alignment = .center
+        tuneCard.stack.addArrangedSubview(cornerRow)
+
+        previewLabel.numberOfLines = 0
+        tuneCard.stack.addArrangedSubview(previewLabel)
+        stack.addArrangedSubview(tuneCard)
+
+        // Card 3: Save, Apply & Export
+        let actionCard = SiqiCardView()
+        actionCard.stack.spacing = 10
+        actionCard.stack.addArrangedSubview(SiqiStyle.makeKicker("保存生效与导出分享"))
+
+        let saveApplyBtn = SiqiButton(
+            title: isRunning ? "保存并立即重连生效" : "保存并启用自定义分辨率",
+            variant: .primary,
+            fontSize: 14,
+            height: 46
+        )
+        saveApplyBtn.addAction(UIAction { [weak self] _ in
+            self?.saveAndApply()
+        }, for: .touchUpInside)
+        actionCard.stack.addArrangedSubview(saveApplyBtn)
+
+        let exportBtn = SiqiButton(title: "导出最终分辨率配置（复制并分享）", variant: .secondary, fontSize: 14, height: 44)
+        exportBtn.addAction(UIAction { [weak self] _ in
+            self?.exportProfile(sourceView: exportBtn)
+        }, for: .touchUpInside)
+        actionCard.stack.addArrangedSubview(exportBtn)
+
+        let resetBtn = SiqiButton(title: "恢复凯越 450RR 实测基准", variant: .secondary, fontSize: 13, height: 40)
+        resetBtn.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            self.profile = .kove450RRDefault
+            self.syncFieldsFromProfile()
+            self.statusLabel.text = "已恢复凯越 450RR 默认参数（点上方保存生效）。"
+            self.statusLabel.textColor = SiqiStyle.textSecondary
+        }, for: .touchUpInside)
+        actionCard.stack.addArrangedSubview(resetBtn)
+
+        actionCard.stack.addArrangedSubview(statusLabel)
+        stack.addArrangedSubview(actionCard)
+    }
+
+    private func styleTextField(_ field: UITextField, placeholder: String, numeric: Bool) {
+        field.placeholder = placeholder
+        field.keyboardType = numeric ? .numberPad : .default
+        field.autocorrectionType = .no
+        field.autocapitalizationType = .none
+        field.textColor = SiqiStyle.textPrimary
+        field.font = .monospacedDigitSystemFont(ofSize: 14, weight: .medium)
+        field.backgroundColor = SiqiStyle.button.withAlphaComponent(0.75)
+        field.layer.cornerRadius = 10
+        field.layer.cornerCurve = .continuous
+        field.layer.borderWidth = 1
+        field.layer.borderColor = SiqiStyle.outline.cgColor
+        field.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 10, height: 36))
+        field.leftViewMode = .always
+        field.textAlignment = numeric ? .center : .left
+        field.heightAnchor.constraint(equalToConstant: 38).isActive = true
+        field.returnKeyType = .done
+        field.addTarget(field, action: #selector(UIResponder.resignFirstResponder), for: .editingDidEndOnExit)
+        field.addAction(UIAction { [weak self] _ in
+            self?.readFieldsIntoProfile()
+            self?.updatePreviewText()
+        }, for: .editingDidEnd)
+    }
+
+    private func makeStepperRow(label: String, field: UITextField, step: Int) -> UIView {
+        let title = SiqiStyle.makeSecondaryLabel(label, size: 13)
+        title.widthAnchor.constraint(equalToConstant: 78).isActive = true
+
+        styleTextField(field, placeholder: "", numeric: true)
+
+        let minusBtn = SiqiButton(title: "-\(step)", variant: .secondary, fontSize: 12, height: 36)
+        minusBtn.widthAnchor.constraint(equalToConstant: 52).isActive = true
+        minusBtn.addAction(UIAction { [weak self] _ in
+            self?.nudge(field, delta: -step)
+        }, for: .touchUpInside)
+
+        let plusBtn = SiqiButton(title: "+\(step)", variant: .secondary, fontSize: 12, height: 36)
+        plusBtn.widthAnchor.constraint(equalToConstant: 52).isActive = true
+        plusBtn.addAction(UIAction { [weak self] _ in
+            self?.nudge(field, delta: step)
+        }, for: .touchUpInside)
+
+        let row = UIStackView(arrangedSubviews: [title, minusBtn, field, plusBtn])
+        row.axis = .horizontal
+        row.alignment = .center
+        row.spacing = 8
+        return row
+    }
+
+    private func nudge(_ field: UITextField, delta: Int) {
+        view.endEditing(true)
+        let current = Int(field.text ?? "") ?? 0
+        field.text = String(max(0, current + delta))
+        readFieldsIntoProfile()
+        syncFieldsFromProfile()
+    }
+
+    private func readFieldsIntoProfile() {
+        var next = profile
+        next.bikeName = bikeNameField.text ?? next.bikeName
+        if let v = Int(streamWidthField.text ?? "") { next.streamWidth = v }
+        if let v = Int(streamHeightField.text ?? "") { next.streamHeight = v }
+        if let v = Int(carPlayWidthField.text ?? "") { next.carPlayWidth = v }
+        if let v = Int(carPlayHeightField.text ?? "") { next.carPlayHeight = v }
+        if let v = Int(viewportTopField.text ?? "") { next.viewportTop = v }
+        if let v = Int(viewportHeightField.text ?? "") { next.viewportHeight = v }
+        if let v = Int(physicalMMField.text ?? "") { next.widthPhysicalMM = v }
+        next.disableSafeAreaSquareCorners = squareCornersSwitch.isOn
+        profile = next.sanitized()
+    }
+
+    private func syncFieldsFromProfile() {
+        let p = profile.sanitized()
+        profile = p
+        bikeNameField.text = p.bikeName
+        streamWidthField.text = "\(p.streamWidth)"
+        streamHeightField.text = "\(p.streamHeight)"
+        carPlayWidthField.text = "\(p.carPlayWidth)"
+        carPlayHeightField.text = "\(p.carPlayHeight)"
+        viewportTopField.text = "\(p.viewportTop)"
+        viewportHeightField.text = "\(p.viewportHeight)"
+        physicalMMField.text = "\(p.widthPhysicalMM)"
+        squareCornersSwitch.isOn = p.disableSafeAreaSquareCorners
+        updatePreviewText()
+    }
+
+    private func updatePreviewText() {
+        let p = profile.sanitized()
+        let bottom = max(0, p.streamHeight - p.viewportTop - p.viewportHeight)
+        previewLabel.text = "当前预览：CarPlay \(p.carPlayWidth)×\(p.carPlayHeight) → 仪表推流 \(p.streamWidth)×\(p.streamHeight)（视口 y=\(p.viewportTop)..\(p.viewportTop + p.viewportHeight)，底留黑 \(bottom)px）· \(p.widthPhysicalMM)mm · \(p.disableSafeAreaSquareCorners ? "直角" : "安全区")"
+    }
+
+    private func saveAndApply() {
+        view.endEditing(true)
+        readFieldsIntoProfile()
+        syncFieldsFromProfile()
+        profile.save()
+        onSaveAndApply(profile)
+        statusLabel.text = isRunning
+            ? "已保存「\(profile.bikeName)」并切为自定义预设，正在重连生效…"
+            : "已保存「\(profile.bikeName)」并启用自定义分辨率，返回启动 CarPlay 生效。"
+        statusLabel.textColor = SiqiStyle.success
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
+    private func exportProfile(sourceView: UIView) {
+        view.endEditing(true)
+        readFieldsIntoProfile()
+        syncFieldsFromProfile()
+        profile.save()
+        let report = profile.exportReport(videoMode: videoMode)
+        UIPasteboard.general.string = report
+        statusLabel.text = "已复制最终分辨率配置到剪贴板，并打开系统分享菜单。"
+        statusLabel.textColor = SiqiStyle.success
+
+        let activity = UIActivityViewController(activityItems: [report], applicationActivities: nil)
+        if let pop = activity.popoverPresentationController {
+            pop.sourceView = sourceView
+            pop.sourceRect = sourceView.bounds
+        }
+        present(activity, animated: true)
     }
 }
 

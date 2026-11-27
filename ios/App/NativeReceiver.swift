@@ -51,6 +51,8 @@ final class NativeReceiver {
             if configuration.siqiKoveEnabled {
                 self.siqiKove.start(
                     videoMode: configuration.siqiKoveVideoMode,
+                    streamWidth: configuration.siqiStreamWidth,
+                    streamHeight: configuration.siqiStreamHeight,
                     viewportTop: configuration.viewportTopPixels,
                     viewportHeight: configuration.viewportHeightPixels,
                     overscanX: configuration.overscanX,

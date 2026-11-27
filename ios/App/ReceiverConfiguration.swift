@@ -21,6 +21,9 @@ struct ReceiverConfiguration {
     let deviceID: String
     var siqiKoveEnabled = true
     var siqiKoveVideoMode: SiqiVideoMode = .transcode
+    /// Output stream resolution written into the 69-byte SiQi header and H.264 encoder.
+    var siqiStreamWidth = SiqiKoveProtocol.width
+    var siqiStreamHeight = SiqiKoveProtocol.height
     /// When true, declare `cornerMasks = true` and omit `safeArea` so CarPlay draws crisp square corners.
     var disableSafeAreaSquareCorners = true
     var safeAreaTopPixels = 0
@@ -88,9 +91,11 @@ struct ReceiverConfiguration {
         if requiresLocalAddress && !Self.localIPv4Addresses().contains(address) {
             throw ConfigurationError("当前 IP 地址不属于本机 Wi-Fi，请重新连接仪表 Wi-Fi。")
         }
-        guard (320...3840).contains(width), (320...3840).contains(height), width % 2 == 0, height % 2 == 0,
+        guard (320...3840).contains(width), (240...3840).contains(height), width % 2 == 0, height % 2 == 0,
               width * height <= 3840 * 2160,
-              (30...60).contains(maxFPS), maxFPS % 5 == 0, (100...400).contains(widthPhysicalMM) else {
+              (320...1920).contains(siqiStreamWidth), (240...1200).contains(siqiStreamHeight),
+              siqiStreamWidth % 2 == 0, siqiStreamHeight % 2 == 0,
+              (30...60).contains(maxFPS), maxFPS % 5 == 0, (80...400).contains(widthPhysicalMM) else {
             throw ConfigurationError("画面分辨率或图标参数无效。")
         }
         guard requiresWiFiCredentials, !ssid.isEmpty else { return }

@@ -84,8 +84,8 @@ private func testPacketLayouts() {
     expect(String(data: naviStart.subdata(in: 6..<(naviStart.count - 1)), encoding: .utf8)?.contains("inside_naviinfo") == true,
            "naviStartPacket missing inside_naviinfo")
 
-    // Verify Kove 450RR synced Android 16:7 resolution, square-corner viewport (y=78, h=484), and icon sizing
-    expect(SiqiBikePreset.allCases == [.kove450RR], "only kove450RR bike preset should be registered")
+    // Verify Kove 450RR synced Android 16:7 resolution, square-corner viewport (y=78, h=484), and custom profile
+    expect(SiqiBikePreset.allCases == [.kove450RR, .custom], "expected kove450RR and custom presets")
     expect(SiqiBikePreset.kove450RR.baseWidth == 2560 && SiqiBikePreset.kove450RR.baseHeight == 1120,
            "kove450RR base canvas must be 2560x1120 (16:7)")
     expect(SiqiBikePreset.kove450RR.viewportRect(for: .transcode) == (78, 484),
@@ -107,6 +107,27 @@ private func testPacketLayouts() {
     expect(SiqiIconSizePreset.xl.widthPhysicalMM == 100
            && SiqiIconSizePreset.large.widthPhysicalMM == 100
            && SiqiIconSizePreset.standard.widthPhysicalMM == 200, "icon physical mm mismatch")
+
+    // Verify custom profile sanitization & export report
+    let rawCustom = SiqiCustomDisplayProfile(
+        bikeName: "  凯越 321RR  ",
+        streamWidth: 801, streamHeight: 481,
+        carPlayWidth: 799, carPlayHeight: 479,
+        viewportTop: 20, viewportHeight: 999,
+        widthPhysicalMM: 120, disableSafeAreaSquareCorners: true
+    ).sanitized()
+    expect(rawCustom.bikeName == "凯越 321RR", "custom bikeName should be trimmed")
+    expect(rawCustom.streamWidth == 800 && rawCustom.streamHeight == 480, "custom stream dims must align even")
+    expect(rawCustom.carPlayWidth == 798 && rawCustom.carPlayHeight == 478, "custom carPlay dims must align even")
+    expect(rawCustom.viewportTop == 20 && rawCustom.viewportHeight == 460, "custom viewport height must clamp inside streamHeight")
+    let report = rawCustom.exportReport(videoMode: .transcode)
+    expect(report.contains("凯越 321RR") && report.contains("800 × 480") && report.contains("\"streamWidth\" : 800"),
+           "export report missing expected fields")
+
+    // Verify custom 800x480 69B video header
+    let header800 = SiqiKoveProtocol.videoFormatHeader(width: 800, height: 480)
+    expect(header800[65] == 0x03 && header800[66] == 0x20 && header800[67] == 0x01 && header800[68] == 0xE0,
+           "800x480 video header bytes mismatch")
 }
 
 private func testServerLoopback() throws {

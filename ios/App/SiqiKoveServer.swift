@@ -1,19 +1,163 @@
 import Darwin
 import Foundation
 
-/// 思骑出行车型仪表预设（当前仅内置凯越 450RR，后期可按思骑车型直接扩展）。
+/// 用户手动调节并可保存/导出的思骑仪表自定义分辨率配置（用于解决其他车型仪表黑屏或拉伸问题）。
+struct SiqiCustomDisplayProfile: Codable, Equatable, Sendable {
+    static let storageKey = "motouCustomDisplayProfileV1"
+
+    var bikeName: String
+    /// 输出给思骑仪表的 H.264 编码与 69B 协议头宽高（解决黑屏的关键参数）。
+    var streamWidth: Int
+    var streamHeight: Int
+    /// 请求 iPhone CarPlay 渲染的画布宽高（解决图标拉伸与比例失真的关键参数）。
+    var carPlayWidth: Int
+    var carPlayHeight: Int
+    /// CarPlay 画面在推流帧内的顶部偏移与有效高度（避让上下仪表栏）。
+    var viewportTop: Int
+    var viewportHeight: Int
+    /// 声明给 CarPlay 的物理宽度（mm），越小图标越大。
+    var widthPhysicalMM: Int
+    /// 是否启用直角无圆角黑边（cornerMasks = true 且不下发 safeArea）。
+    var disableSafeAreaSquareCorners: Bool
+
+    static let kove450RRDefault = SiqiCustomDisplayProfile(
+        bikeName: "凯越 450RR",
+        streamWidth: 1280,
+        streamHeight: 640,
+        carPlayWidth: 1280,
+        carPlayHeight: 560,
+        viewportTop: 78,
+        viewportHeight: 484,
+        widthPhysicalMM: 100,
+        disableSafeAreaSquareCorners: true
+    )
+
+    static let commonTemplates: [(label: String, profile: SiqiCustomDisplayProfile)] = [
+        ("800×480（5寸常见）", SiqiCustomDisplayProfile(
+            bikeName: "思骑 5寸 800×480",
+            streamWidth: 800, streamHeight: 480,
+            carPlayWidth: 800, carPlayHeight: 480,
+            viewportTop: 0, viewportHeight: 480,
+            widthPhysicalMM: 120, disableSafeAreaSquareCorners: true
+        )),
+        ("1024×600（6.2寸）", SiqiCustomDisplayProfile(
+            bikeName: "思骑 6.2寸 1024×600",
+            streamWidth: 1024, streamHeight: 600,
+            carPlayWidth: 1024, carPlayHeight: 600,
+            viewportTop: 0, viewportHeight: 600,
+            widthPhysicalMM: 140, disableSafeAreaSquareCorners: true
+        )),
+        ("1280×640（450RR）", .kove450RRDefault),
+        ("1280×480（宽屏）", SiqiCustomDisplayProfile(
+            bikeName: "思骑 宽屏 1280×480",
+            streamWidth: 1280, streamHeight: 480,
+            carPlayWidth: 1280, carPlayHeight: 480,
+            viewportTop: 0, viewportHeight: 480,
+            widthPhysicalMM: 140, disableSafeAreaSquareCorners: true
+        )),
+        ("1280×720（720P）", SiqiCustomDisplayProfile(
+            bikeName: "思骑 720P 1280×720",
+            streamWidth: 1280, streamHeight: 720,
+            carPlayWidth: 1280, carPlayHeight: 720,
+            viewportTop: 0, viewportHeight: 720,
+            widthPhysicalMM: 160, disableSafeAreaSquareCorners: true
+        ))
+    ]
+
+    func sanitized() -> SiqiCustomDisplayProfile {
+        func evenClamped(_ v: Int, min lo: Int, max hi: Int) -> Int {
+            let c = max(lo, min(hi, v))
+            let even = (c / 2) * 2
+            return max(lo, even)
+        }
+        let sW = evenClamped(streamWidth, min: 320, max: 1920)
+        let sH = evenClamped(streamHeight, min: 240, max: 1200)
+        let cW = evenClamped(carPlayWidth, min: 320, max: 2560)
+        let cH = evenClamped(carPlayHeight, min: 240, max: 1440)
+        let vTop = max(0, min(viewportTop, sH - 64))
+        let vH = max(64, min(viewportHeight, sH - vTop))
+        let mm = max(80, min(300, widthPhysicalMM))
+        let cleanName = bikeName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return SiqiCustomDisplayProfile(
+            bikeName: cleanName.isEmpty ? "自定义思骑仪表" : cleanName,
+            streamWidth: sW,
+            streamHeight: sH,
+            carPlayWidth: cW,
+            carPlayHeight: cH,
+            viewportTop: vTop,
+            viewportHeight: vH,
+            widthPhysicalMM: mm,
+            disableSafeAreaSquareCorners: disableSafeAreaSquareCorners
+        )
+    }
+
+    static func loadSaved() -> SiqiCustomDisplayProfile {
+        guard let data = UserDefaults.standard.data(forKey: storageKey),
+              let decoded = try? JSONDecoder().decode(SiqiCustomDisplayProfile.self, from: data) else {
+            return .kove450RRDefault
+        }
+        return decoded.sanitized()
+    }
+
+    func save() {
+        let clean = sanitized()
+        if let data = try? JSONEncoder().encode(clean) {
+            UserDefaults.standard.set(data, forKey: Self.storageKey)
+        }
+    }
+
+    func exportReport(videoMode: SiqiVideoMode) -> String {
+        let p = sanitized()
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let jsonString = (try? encoder.encode(p)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        return """
+        【摩投 · 思骑仪表实测分辨率配置】
+        车型备注：\(p.bikeName)
+        仪表推流分辨率（69B头/H.264）：\(p.streamWidth) × \(p.streamHeight) @ 30 FPS
+        CarPlay 虚拟画布：\(p.carPlayWidth) × \(p.carPlayHeight)
+        有效视口范围：顶部偏移 \(p.viewportTop) px，高度 \(p.viewportHeight) px（底部留黑 \(max(0, p.streamHeight - p.viewportTop - p.viewportHeight)) px）
+        图标物理宽度：\(p.widthPhysicalMM) mm
+        直角无圆角黑边：\(p.disableSafeAreaSquareCorners ? "开启" : "关闭")
+        推流模式：\(videoMode.title)
+
+        JSON 配置（可直接发给作者收录预设）：
+        \(jsonString)
+        """
+    }
+}
+
+/// 最终生效的思骑仪表显示参数快照（统一内置车型与手动自定义调节）。
+struct SiqiResolvedDisplayPlan: Equatable, Sendable {
+    let streamWidth: Int
+    let streamHeight: Int
+    let carPlayWidth: Int
+    let carPlayHeight: Int
+    let viewportTop: Int
+    let viewportHeight: Int
+    let widthPhysicalMM: Int
+    let disableSafeAreaSquareCorners: Bool
+    let safeAreaTop: Int
+    let safeAreaBottom: Int
+    let drawOutside: Bool
+}
+
+/// 思骑出行车型仪表预设（内置凯越 450RR 实测预设 + 自定义分辨率调试预设）。
 enum SiqiBikePreset: Int, CaseIterable, Sendable {
     case kove450RR = 0
+    case custom = 1
 
     var title: String {
         switch self {
         case .kove450RR: return "思骑出行 / 凯越 450RR"
+        case .custom: return "自定义分辨率（其他车型/黑屏调试）"
         }
     }
 
     var shortTitle: String {
         switch self {
         case .kove450RR: return "凯越 450RR"
+        case .custom: return "自定义分辨率"
         }
     }
 
@@ -21,6 +165,8 @@ enum SiqiBikePreset: Int, CaseIterable, Sendable {
         switch self {
         case .kove450RR:
             return "直角无圆角黑边 · 四边等距留白 · 1:1 图标比例矫正"
+        case .custom:
+            return "手动调节仪表推流宽高、CarPlay 画布与视口偏移，适配其他思骑仪表并支持导出"
         }
     }
 
@@ -39,6 +185,66 @@ enum SiqiBikePreset: Int, CaseIterable, Sendable {
     var oemLabel: String { "KOVE" }
     var manufacturer: String { "Kove" }
     var modelName: String { "Kove-450RR-CarPlay" }
+
+    /// 统一解析当前生效的推流分辨率、CarPlay 画布、视口偏移与安全区策略。
+    func resolvePlan(
+        icon: SiqiIconSizePreset,
+        videoMode: SiqiVideoMode,
+        customProfile: SiqiCustomDisplayProfile
+    ) -> SiqiResolvedDisplayPlan {
+        switch self {
+        case .kove450RR:
+            let canvas = carPlayCanvasSize(for: icon, videoMode: videoMode)
+            let vp = viewportRect(for: videoMode)
+            let sa = airPlaySafeArea(for: videoMode)
+            return SiqiResolvedDisplayPlan(
+                streamWidth: streamWidth,
+                streamHeight: streamHeight,
+                carPlayWidth: canvas.width,
+                carPlayHeight: canvas.height,
+                viewportTop: vp.top,
+                viewportHeight: vp.height,
+                widthPhysicalMM: icon.widthPhysicalMM,
+                disableSafeAreaSquareCorners: sa.disableSafeAreaSquareCorners,
+                safeAreaTop: sa.top,
+                safeAreaBottom: sa.bottom,
+                drawOutside: sa.drawOutside
+            )
+        case .custom:
+            let p = customProfile.sanitized()
+            switch videoMode {
+            case .transcode:
+                return SiqiResolvedDisplayPlan(
+                    streamWidth: p.streamWidth,
+                    streamHeight: p.streamHeight,
+                    carPlayWidth: p.carPlayWidth,
+                    carPlayHeight: p.carPlayHeight,
+                    viewportTop: p.viewportTop,
+                    viewportHeight: p.viewportHeight,
+                    widthPhysicalMM: p.widthPhysicalMM,
+                    disableSafeAreaSquareCorners: p.disableSafeAreaSquareCorners,
+                    safeAreaTop: 0,
+                    safeAreaBottom: 0,
+                    drawOutside: true
+                )
+            case .passthrough:
+                let bottom = max(0, p.streamHeight - p.viewportTop - p.viewportHeight)
+                return SiqiResolvedDisplayPlan(
+                    streamWidth: p.streamWidth,
+                    streamHeight: p.streamHeight,
+                    carPlayWidth: p.streamWidth,
+                    carPlayHeight: p.streamHeight,
+                    viewportTop: 0,
+                    viewportHeight: p.streamHeight,
+                    widthPhysicalMM: p.widthPhysicalMM,
+                    disableSafeAreaSquareCorners: p.disableSafeAreaSquareCorners && p.viewportTop == 0 && bottom == 0,
+                    safeAreaTop: p.viewportTop,
+                    safeAreaBottom: bottom,
+                    drawOutside: true
+                )
+            }
+        }
+    }
 
     /// 按车型基准尺寸（2560×1120）与图标档位缩放（40%/50%/60%）得到 16px 对齐的 CarPlay 画布：
     /// - 超大图标（40%, 100mm）：1024×448
@@ -480,6 +686,8 @@ final class SiqiKoveServer: @unchecked Sendable {
 
     private let stateLock = NSLock()
     private var running = false
+    private var outputWidth: Int = SiqiKoveProtocol.width
+    private var outputHeight: Int = SiqiKoveProtocol.height
     private var serverControl: SocketBox?
     private var serverHeartbeat: SocketBox?
     private var serverVideo: SocketBox?
@@ -561,12 +769,14 @@ final class SiqiKoveServer: @unchecked Sendable {
         ))
     }
 
-    func start() throws {
+    func start(videoWidth: Int = SiqiKoveProtocol.width, videoHeight: Int = SiqiKoveProtocol.height) throws {
         stateLock.lock()
         if running {
             stateLock.unlock()
             return
         }
+        outputWidth = max(320, (videoWidth / 2) * 2)
+        outputHeight = max(240, (videoHeight / 2) * 2)
         do {
             let sControl = try SocketBox.listen(port: configuredControlPort)
             let sHeartbeat: SocketBox
@@ -877,13 +1087,18 @@ final class SiqiKoveServer: @unchecked Sendable {
             return match
         }
 
-        let header = SiqiKoveProtocol.videoFormatHeader()
+        stateLock.lock()
+        let streamW = outputWidth
+        let streamH = outputHeight
+        stateLock.unlock()
+
+        let header = SiqiKoveProtocol.videoFormatHeader(width: streamW, height: streamH)
         guard client.writeAll(header, shouldContinue: stillActive) else {
             cleanupVideoClient(client)
             return
         }
 
-        onLog?("仪表视频通道已连接（\(client.peerIP)），已发送 69B 头（\(SiqiKoveProtocol.width)×\(SiqiKoveProtocol.height)）")
+        onLog?("仪表视频通道已连接（\(client.peerIP)），已发送 69B 头（\(streamW)×\(streamH)）")
         publishStatus("仪表视频已连接，等待 CarPlay 关键帧…")
         onVideoClientConnected?()
         onNeedKeyframe?()
@@ -932,7 +1147,7 @@ final class SiqiKoveServer: @unchecked Sendable {
 
                 if frames == 1 || frames % 30 == 0 {
                     let kb = bytes / 1024
-                    self.publishStatus("正在投屏 · \(SiqiKoveProtocol.width)×\(SiqiKoveProtocol.height) · 已推 \(frames) 帧（\(kb) KB）")
+                    self.publishStatus("正在投屏 · \(streamW)×\(streamH) · 已推 \(frames) 帧（\(kb) KB）")
                 }
             }
             self.cleanupVideoClient(client)
