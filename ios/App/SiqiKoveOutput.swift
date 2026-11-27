@@ -127,7 +127,7 @@ final class SiqiKoveOutput {
         }
 
         private var active: Bool {
-            lock.withLock { !cancelled }
+            lock.synchronized { !cancelled }
         }
 
         func start() {
@@ -147,12 +147,12 @@ final class SiqiKoveOutput {
             }
             server.onNeedKeyframe = { [weak self] in
                 guard let self, self.active else { return }
-                self.lock.withLock { self.forceNextKeyframe = true }
+                self.lock.synchronized { self.forceNextKeyframe = true }
                 self.requestKeyframe()
             }
             server.onVideoClientConnected = { [weak self] in
                 guard let self, self.active else { return }
-                self.lock.withLock { self.forceNextKeyframe = true }
+                self.lock.synchronized { self.forceNextKeyframe = true }
                 self.requestKeyframe()
             }
             server.onVideoClientDisconnected = { [weak self] in
@@ -187,13 +187,13 @@ final class SiqiKoveOutput {
 
         func forceKeyframe() {
             guard active else { return }
-            lock.withLock { forceNextKeyframe = true }
+            lock.synchronized { forceNextKeyframe = true }
             server.forceKeyframe()
             requestKeyframe()
         }
 
         func cancel() {
-            lock.withLock {
+            lock.synchronized {
                 cancelled = true
                 acceptingFrames = false
             }
@@ -202,12 +202,12 @@ final class SiqiKoveOutput {
 
         func append(_ data: Data, keyframe: Bool) {
             if videoMode == .passthrough {
-                guard lock.withLock({ !cancelled && acceptingFrames }) else { return }
+                guard lock.synchronized({ !cancelled && acceptingFrames }) else { return }
                 appendPassthrough(data)
                 return
             }
 
-            let (accepted, needsKeyframe) = lock.withLock {
+            let (accepted, needsKeyframe) = lock.synchronized {
                 guard !cancelled, acceptingFrames else { return (false, false) }
                 guard server.isVideoActive else { return (false, false) }
                 if queued >= 6 {
@@ -223,8 +223,8 @@ final class SiqiKoveOutput {
             if needsKeyframe { requestKeyframe() }
             guard accepted else { return }
             queue.async { [self] in
-                defer { lock.withLock { queued -= 1 } }
-                guard lock.withLock({ !cancelled && acceptingFrames }) else { return }
+                defer { lock.synchronized { queued -= 1 } }
+                guard lock.synchronized({ !cancelled && acceptingFrames }) else { return }
                 decode(data, keyframe: keyframe)
             }
         }
@@ -273,7 +273,7 @@ final class SiqiKoveOutput {
                         Thread.sleep(forTimeInterval: min(remaining, 0.03))
                         continue
                     }
-                    let wantKeyframe = lock.withLock { forceNextKeyframe }
+                    let wantKeyframe = lock.synchronized { forceNextKeyframe }
                     let encodedFrame = queue.sync { () -> H264EncodedFrame? in
                         guard active, server.isVideoActive, let image = latest else { return nil }
                         guard fresh || wantKeyframe else { return nil }
@@ -285,7 +285,7 @@ final class SiqiKoveOutput {
                         if frame != nil {
                             fresh = false
                             if wantKeyframe {
-                                lock.withLock { forceNextKeyframe = false }
+                                lock.synchronized { forceNextKeyframe = false }
                             }
                         }
                         return frame
@@ -320,10 +320,10 @@ final class SiqiKoveOutput {
                     decoder = try TailingH264Decoder(
                         configuration: parameters.decoderConfigurationRecord(),
                         output: { [weak self] image in
-                            self?.lock.withLock { self?.decoded = image }
+                            self?.lock.synchronized { self?.decoded = image }
                         },
                         failure: { [weak self] error in
-                            self?.lock.withLock { self?.decodeError = error }
+                            self?.lock.synchronized { self?.decodeError = error }
                         }
                     )
                     waitingForIDR = false
@@ -335,7 +335,7 @@ final class SiqiKoveOutput {
                     isKeyframe: keyframe
                 )
                 decoder.waitForFrames()
-                let (image, error) = lock.withLock {
+                let (image, error) = lock.synchronized {
                     defer { decoded = nil; decodeError = nil }
                     return (decoded, decodeError)
                 }
@@ -347,7 +347,7 @@ final class SiqiKoveOutput {
             } catch {
                 decoder?.invalidate()
                 decoder = nil
-                lock.withLock { decoded = nil; decodeError = nil }
+                lock.synchronized { decoded = nil; decodeError = nil }
                 waitingForIDR = true
                 logCodecFailure("解码", error)
                 requestKeyframe()
@@ -364,7 +364,7 @@ final class SiqiKoveOutput {
                         fps: 30,
                         bitrate: 2_500_000
                     ) { [weak self] result in
-                        self?.lock.withLock { self?.encoded = result }
+                        self?.lock.synchronized { self?.encoded = result }
                     }
                     lastKeyframe = -.infinity
                 }
@@ -377,7 +377,7 @@ final class SiqiKoveOutput {
                     forceKeyframe: forceKeyframe || lastKeyframe == -.infinity
                 )
                 encoder.complete()
-                let result = lock.withLock {
+                let result = lock.synchronized {
                     defer { encoded = nil }
                     return encoded
                 }
@@ -390,7 +390,7 @@ final class SiqiKoveOutput {
                 encoder?.invalidate()
                 encoder = nil
                 lastKeyframe = -.infinity
-                lock.withLock { encoded = nil }
+                lock.synchronized { encoded = nil }
                 logCodecFailure("编码", error)
                 return nil
             }
@@ -539,7 +539,7 @@ final class SiqiKoveOutput {
         }
 
         func close() {
-            lock.withLock { acceptingFrames = false }
+            lock.synchronized { acceptingFrames = false }
             server.stop()
             decoder?.invalidate()
             decoder = nil
@@ -549,5 +549,13 @@ final class SiqiKoveOutput {
             latest = nil
             fresh = false
         }
+    }
+}
+
+private extension NSLock {
+    func synchronized<T>(_ body: () throws -> T) rethrows -> T {
+        lock()
+        defer { unlock() }
+        return try body()
     }
 }

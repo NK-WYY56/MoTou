@@ -26,6 +26,8 @@ public class CarPlayVirtualPipeline {
     public static final int BITRATE = 2500000;
 
     private final KoveClusterServer clusterServer;
+    private int streamWidth = WIDTH;
+    private int streamHeight = HEIGHT;
     private MediaCodec encoder;
     private Surface inputSurface;
     private volatile boolean isRunning = false;
@@ -41,13 +43,30 @@ public class CarPlayVirtualPipeline {
         this.isStreamingToCluster = streaming;
     }
 
+    public int getStreamWidth() {
+        return streamWidth;
+    }
+
+    public int getStreamHeight() {
+        return streamHeight;
+    }
+
     public synchronized Surface start() throws Exception {
-        if (isRunning && inputSurface != null && inputSurface.isValid()) {
+        return start(WIDTH, HEIGHT);
+    }
+
+    public synchronized Surface start(int width, int height) throws Exception {
+        int safeW = Math.max(320, Math.min(1920, (width / 2) * 2));
+        int safeH = Math.max(240, Math.min(1200, (height / 2) * 2));
+        if (isRunning && inputSurface != null && inputSurface.isValid()
+                && this.streamWidth == safeW && this.streamHeight == safeH) {
             return inputSurface;
         }
         stop();
 
-        Log.i(TAG, "Starting Hardware AVC Offscreen Encoder (" + WIDTH + "x" + HEIGHT + " @ " + FPS + "fps)...");
+        this.streamWidth = safeW;
+        this.streamHeight = safeH;
+        Log.i(TAG, "Starting Hardware AVC Offscreen Encoder (" + safeW + "x" + safeH + " @ " + FPS + "fps)...");
         encoder = configureAvcEncoder();
         inputSurface = encoder.createInputSurface();
         encoder.start();
@@ -55,7 +74,7 @@ public class CarPlayVirtualPipeline {
         cachedSpsPps = null;
 
         startDrainThread();
-        Log.i(TAG, "Hardware AVC Offscreen Encoder ready.");
+        Log.i(TAG, "Hardware AVC Offscreen Encoder ready (" + safeW + "x" + safeH + ").");
         return inputSurface;
     }
 
@@ -80,7 +99,7 @@ public class CarPlayVirtualPipeline {
     }
 
     private MediaFormat baseFormat() {
-        MediaFormat format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, WIDTH, HEIGHT);
+        MediaFormat format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, streamWidth, streamHeight);
         format.setInteger(MediaFormat.KEY_BIT_RATE, BITRATE);
         format.setInteger(MediaFormat.KEY_FRAME_RATE, FPS);
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);

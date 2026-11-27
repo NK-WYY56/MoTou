@@ -17,8 +17,8 @@ android {
         applicationId = "com.nkwyy56.motou"
         minSdk = 26
         targetSdk = 34
-        versionCode = 20
-        versionName = "2.0.0-diplay-integrated"
+        versionCode = 21
+        versionName = "1.1.0"
     }
 
     localAuthenticationAssets?.let {
@@ -40,4 +40,5 @@ android {
 dependencies {
     implementation(project(":common"))
     implementation(project(":shared"))
+    testImplementation(libs.junit)
 }

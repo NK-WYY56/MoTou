@@ -77,6 +77,31 @@ public class KoveClusterServer {
     private volatile byte[] cachedSpsPps = null;
     private final AtomicLong totalFramesStreamed = new AtomicLong(0);
     private final AtomicLong totalBytesStreamed = new AtomicLong(0);
+    private volatile int videoWidth = WIDTH;
+    private volatile int videoHeight = HEIGHT;
+
+    public synchronized void setVideoOutputSize(int width, int height) {
+        int safeW = Math.max(320, Math.min(1920, (width / 2) * 2));
+        int safeH = Math.max(240, Math.min(1200, (height / 2) * 2));
+        boolean changed = (this.videoWidth != safeW || this.videoHeight != safeH);
+        this.videoWidth = safeW;
+        this.videoHeight = safeH;
+        if (changed) {
+            Log.i(TAG, "Updated cluster 69B video output size -> " + safeW + "x" + safeH);
+            if (isVideoStreamingActive()) {
+                // Close active 15456 socket so the cluster reconnects and receives the updated 69B header
+                closeVideoClient();
+            }
+        }
+    }
+
+    public int getVideoWidth() {
+        return videoWidth;
+    }
+
+    public int getVideoHeight() {
+        return videoHeight;
+    }
 
     public void addListener(ClusterStateListener listener) {
         if (listener != null && !listeners.contains(listener)) {
@@ -470,11 +495,13 @@ public class KoveClusterServer {
             }, "VideoSocketReader");
             videoReaderThread.start();
 
-            // 2. Send 69-byte video format header (android, 1280x640) ONLY; do NOT push stale P-frames!
-            byte[] formatHeader = KoveProtocol.makeVideoFormatHeader(WIDTH, HEIGHT);
+            // 2. Send 69-byte video format header (android, active stream size) ONLY; do NOT push stale P-frames!
+            int outW = videoWidth;
+            int outH = videoHeight;
+            byte[] formatHeader = KoveProtocol.makeVideoFormatHeader(outW, outH);
             out.write(formatHeader);
             out.flush();
-            Log.i(TAG, "Sent 69-byte format header (android, 1280x640), waiting for clean IDR keyframe");
+            Log.i(TAG, "Sent 69-byte format header (android, " + outW + "x" + outH + "), waiting for clean IDR keyframe");
 
             // 3. Start dedicated async video sender thread
             videoSenderThread = new Thread(() -> runVideoSender(client, out), "VideoSenderThread");

@@ -20,6 +20,7 @@ import android.os.IBinder;
 import android.os.PowerManager;
 import android.util.Log;
 
+import com.carplay.siqirelay.carlife.CarLifeLocalReceiver;
 import com.carplay.siqirelay.carplay.AutoConnectManager;
 import com.carplay.siqirelay.carplay.CarPlayDongleManager;
 import com.carplay.siqirelay.carplay.CarPlayVirtualPipeline;
@@ -59,6 +60,7 @@ public class BridgeService extends Service {
     private KoveClusterServer clusterServer;
     private KoveBleScanner bleScanner;
     private CarPlayDongleManager dongleManager;
+    private CarLifeLocalReceiver carLifeReceiver;
     private DiPlayBridge diPlayBridge;
     private VirtualDisplayStreamer virtualDisplayStreamer;
     private ScreenStreamer screenStreamer;
@@ -78,6 +80,47 @@ public class BridgeService extends Service {
 
     public CarPlayDongleManager getDongleManager() {
         return dongleManager;
+    }
+
+    public CarLifeLocalReceiver getCarLifeReceiver() {
+        return carLifeReceiver;
+    }
+
+    public synchronized void setProjectionSourceMode(int mode) {
+        DiPlayConfigOptimizer.setProjectionSourceMode(this, mode);
+        if (mode == DiPlayConfigOptimizer.SOURCE_MODE_CARLIFE) {
+            if (SiQiRelayBridge.hasSession()) {
+                SiQiRelayBridge.stopCarPlaySession(this, null);
+            }
+            if (clusterServer != null && clusterServer.isAnyClusterActive() && carLifeReceiver != null) {
+                carLifeReceiver.start();
+            }
+        } else {
+            if (carLifeReceiver != null) {
+                carLifeReceiver.stop();
+            }
+        }
+        if (virtualDisplayStreamer != null) {
+            virtualDisplayStreamer.notifySourceModeChanged();
+        }
+    }
+
+    public synchronized void startCarLifeReceiver() {
+        if (carLifeReceiver != null) {
+            carLifeReceiver.start();
+        }
+        if (virtualDisplayStreamer != null) {
+            virtualDisplayStreamer.notifySourceModeChanged();
+        }
+    }
+
+    public synchronized void stopCarLifeReceiver() {
+        if (carLifeReceiver != null) {
+            carLifeReceiver.stop();
+        }
+        if (virtualDisplayStreamer != null) {
+            virtualDisplayStreamer.notifySourceModeChanged();
+        }
     }
 
     public CarPlayVirtualPipeline getVirtualPipeline() {
@@ -174,7 +217,13 @@ public class BridgeService extends Service {
             @Override
             public void onClusterConnected(String clientIp) {
                 if (bleScanner != null) bleScanner.pauseScan();
-                autoConnect.onClusterConnected(clientIp);
+                if (DiPlayConfigOptimizer.getProjectionSourceMode(BridgeService.this) == DiPlayConfigOptimizer.SOURCE_MODE_CARLIFE) {
+                    if (carLifeReceiver != null && !carLifeReceiver.isRunning()) {
+                        carLifeReceiver.start();
+                    }
+                } else {
+                    autoConnect.onClusterConnected(clientIp);
+                }
             }
 
             @Override
@@ -188,7 +237,13 @@ public class BridgeService extends Service {
             @Override
             public void onVideoStreamActive() {
                 if (bleScanner != null) bleScanner.pauseScan();
-                autoConnect.onClusterConnected(null);
+                if (DiPlayConfigOptimizer.getProjectionSourceMode(BridgeService.this) == DiPlayConfigOptimizer.SOURCE_MODE_CARLIFE) {
+                    if (carLifeReceiver != null && !carLifeReceiver.isRunning()) {
+                        carLifeReceiver.start();
+                    }
+                } else {
+                    autoConnect.onClusterConnected(null);
+                }
             }
 
             @Override
@@ -225,12 +280,14 @@ public class BridgeService extends Service {
         });
         bleScanner.start();
 
-        // 3. Start CarPlay USB Dongle Host Manager (optional Route A compatibility)
+        // 3. Start CarPlay USB Dongle Host Manager (optional Route A compatibility) & local CarLife receiver
         dongleManager = new CarPlayDongleManager(this, clusterServer);
         dongleManager.start();
+        carLifeReceiver = new CarLifeLocalReceiver(this);
 
-        // 4. Hook Handlebar Key Bridge to Dongle
+        // 4. Hook Handlebar Key Bridge to Dongle & local CarLife
         HandlebarKeyBridge.getInstance().setDongleManager(dongleManager);
+        HandlebarKeyBridge.getInstance().setCarLifeReceiver(carLifeReceiver);
 
         // 5. Lightweight DiPlay launcher helper (do not poll unused MapEmbedService every 3s)
         try {
@@ -243,6 +300,7 @@ public class BridgeService extends Service {
         try {
             SiQiRelayBridge.setVirtualScreenEnabled(this, true);
             virtualDisplayStreamer = new VirtualDisplayStreamer(this, clusterServer);
+            virtualDisplayStreamer.setCarLifeReceiver(carLifeReceiver);
             screenStreamer = new ScreenStreamer(this, clusterServer);
             virtualDisplayStreamer.start();
             updateNotification("摩投 服务运行中");
@@ -348,6 +406,7 @@ public class BridgeService extends Service {
             wakeLock.release();
         }
         if (diPlayBridge != null) diPlayBridge.stop();
+        if (carLifeReceiver != null) carLifeReceiver.stop();
         if (virtualDisplayStreamer != null) virtualDisplayStreamer.stop();
         if (screenStreamer != null) screenStreamer.stop();
         if (dongleManager != null) dongleManager.stop();

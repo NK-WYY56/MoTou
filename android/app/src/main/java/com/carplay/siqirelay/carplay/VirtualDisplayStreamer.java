@@ -24,6 +24,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
+import com.carplay.siqirelay.carlife.CarLifeLocalReceiver;
 import com.carplay.siqirelay.kove.KoveClusterServer;
 import com.shilapi.xcertplay.SiQiRelayBridge;
 
@@ -45,10 +46,13 @@ public class VirtualDisplayStreamer implements KoveClusterServer.VideoControlCal
     private final KoveClusterServer clusterServer;
     private final CarPlayVirtualPipeline virtualPipeline;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private volatile CarLifeLocalReceiver carLifeReceiver;
 
     private volatile boolean isEnabled = false;
     private volatile int sessionGen = 0;
     private long lastKeyframeRequestMs = 0L;
+    private int activeStreamWidth = CarPlayVirtualPipeline.WIDTH;
+    private int activeStreamHeight = CarPlayVirtualPipeline.HEIGHT;
 
     private VirtualDisplay virtualDisplay;
     private VirtualCarPlayPresentation presentation;
@@ -57,6 +61,51 @@ public class VirtualDisplayStreamer implements KoveClusterServer.VideoControlCal
         this.context = context.getApplicationContext();
         this.clusterServer = clusterServer;
         this.virtualPipeline = new CarPlayVirtualPipeline(clusterServer);
+    }
+
+    public void setCarLifeReceiver(CarLifeLocalReceiver receiver) {
+        if (this.carLifeReceiver != null) {
+            this.carLifeReceiver.removeListener(carLifeStateListener);
+        }
+        this.carLifeReceiver = receiver;
+        if (receiver != null) {
+            receiver.addListener(carLifeStateListener);
+        }
+    }
+
+    private final CarLifeLocalReceiver.Listener carLifeStateListener = new CarLifeLocalReceiver.Listener() {
+        @Override
+        public void onStateChanged(CarLifeLocalReceiver.State state, String detail) {
+            mainHandler.post(() -> {
+                if (presentation != null && isCarLifeMode()) {
+                    presentation.updateStatus(detail);
+                    presentation.setVideoActive(state == CarLifeLocalReceiver.State.STREAMING);
+                }
+            });
+        }
+
+        @Override
+        public void onVideoFrame(long frameCount, int width, int height) {
+            if (frameCount == 1) {
+                mainHandler.post(() -> {
+                    if (presentation != null && isCarLifeMode()) {
+                        presentation.setVideoActive(true);
+                    }
+                });
+            }
+        }
+    };
+
+    private boolean isCarLifeMode() {
+        return DiPlayConfigOptimizer.getProjectionSourceMode(context) == DiPlayConfigOptimizer.SOURCE_MODE_CARLIFE;
+    }
+
+    public void notifySourceModeChanged() {
+        mainHandler.post(() -> {
+            if (presentation != null) {
+                presentation.rebindActiveSurface();
+            }
+        });
     }
 
     public synchronized void start() {
@@ -97,6 +146,17 @@ public class VirtualDisplayStreamer implements KoveClusterServer.VideoControlCal
 
     public void updateBorderLayout() {
         mainHandler.post(() -> {
+            DiPlayConfigOptimizer.BikePresetSpec preset = DiPlayConfigOptimizer.getActivePresetSpec(context);
+            if (clusterServer != null) {
+                clusterServer.setVideoOutputSize(preset.streamWidth, preset.streamHeight);
+            }
+            if (virtualDisplay != null && (preset.streamWidth != activeStreamWidth || preset.streamHeight != activeStreamHeight)) {
+                final int gen = ++sessionGen;
+                Log.i(TAG, "Stream resolution changed (" + activeStreamWidth + "x" + activeStreamHeight
+                        + " -> " + preset.streamWidth + "x" + preset.streamHeight + "), restarting VirtualDisplay");
+                startVirtualScreenOnMain(gen);
+                return;
+            }
             if (presentation != null) {
                 presentation.applyBorderLayout();
             }
@@ -126,6 +186,9 @@ public class VirtualDisplayStreamer implements KoveClusterServer.VideoControlCal
         }
         lastKeyframeRequestMs = now;
         virtualPipeline.requestKeyframe();
+        if (isCarLifeMode() && carLifeReceiver != null) {
+            carLifeReceiver.requestKeyframe();
+        }
     }
 
     @Override
@@ -151,7 +214,13 @@ public class VirtualDisplayStreamer implements KoveClusterServer.VideoControlCal
         teardownVirtualScreenOnMain();
 
         try {
-            android.view.Surface encoderSurface = virtualPipeline.start();
+            DiPlayConfigOptimizer.BikePresetSpec preset = DiPlayConfigOptimizer.getActivePresetSpec(context);
+            activeStreamWidth = preset.streamWidth;
+            activeStreamHeight = preset.streamHeight;
+            if (clusterServer != null) {
+                clusterServer.setVideoOutputSize(activeStreamWidth, activeStreamHeight);
+            }
+            android.view.Surface encoderSurface = virtualPipeline.start(activeStreamWidth, activeStreamHeight);
             DisplayManager dm = (DisplayManager) context.getSystemService(Context.DISPLAY_SERVICE);
             if (dm == null) {
                 Log.e(TAG, "DisplayManager unavailable!");
@@ -159,8 +228,8 @@ public class VirtualDisplayStreamer implements KoveClusterServer.VideoControlCal
             }
             virtualDisplay = dm.createVirtualDisplay(
                     "KoveCarPlayVirtual",
-                    CarPlayVirtualPipeline.WIDTH,
-                    CarPlayVirtualPipeline.HEIGHT,
+                    activeStreamWidth,
+                    activeStreamHeight,
                     VIRTUAL_DPI,
                     encoderSurface,
                     DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY,
@@ -172,7 +241,7 @@ public class VirtualDisplayStreamer implements KoveClusterServer.VideoControlCal
             presentation = new VirtualCarPlayPresentation(displayCtx, vd);
             presentation.show();
             Log.i(TAG, "VirtualDisplay + Presentation active displayId=" + vd.getDisplayId() + " (" +
-                    CarPlayVirtualPipeline.WIDTH + "x" + CarPlayVirtualPipeline.HEIGHT + ")");
+                    activeStreamWidth + "x" + activeStreamHeight + ")");
         } catch (Throwable t) {
             Log.e(TAG, "Failed to start VirtualDisplay pipeline: " + t.getMessage(), t);
             teardownVirtualScreenOnMain();
@@ -205,14 +274,22 @@ public class VirtualDisplayStreamer implements KoveClusterServer.VideoControlCal
         private LinearLayout waitingOverlay;
         private TextView tvStage;
         private TextView tvClock;
-        private boolean videoActive = SiQiRelayBridge.isMainVideoActive();
+        private boolean videoActive = computeInitialVideoActive();
+
+        private boolean computeInitialVideoActive() {
+            if (isCarLifeMode()) {
+                return carLifeReceiver != null && carLifeReceiver.getState() == CarLifeLocalReceiver.State.STREAMING;
+            }
+            return SiQiRelayBridge.isMainVideoActive();
+        }
 
         private final Runnable pulseRunnable = new Runnable() {
             @Override
             public void run() {
                 if (!isShowing() || videoActive) return;
                 if (tvClock != null) {
-                    tvClock.setText("等待 iPhone 连接 · " + sdf.format(new Date()));
+                    String prefix = isCarLifeMode() ? "等待本机 CarLife+ 接入 · " : "等待 iPhone 连接 · ";
+                    tvClock.setText(prefix + sdf.format(new Date()));
                 }
                 if (tvStage != null) {
                     tvStage.setText(formatStageLine());
@@ -245,7 +322,7 @@ public class VirtualDisplayStreamer implements KoveClusterServer.VideoControlCal
                     releaseVideoSurface();
                     applyVideoTransform(width, height);
                     videoSurface = new Surface(surfaceTexture);
-                    SiQiRelayBridge.setVirtualMainSurface(videoSurface);
+                    attachSurfaceToActiveSource();
                     virtualPipeline.requestKeyframe();
                 }
 
@@ -307,8 +384,33 @@ public class VirtualDisplayStreamer implements KoveClusterServer.VideoControlCal
             setVideoActive(videoActive);
         }
 
+        private void attachSurfaceToActiveSource() {
+            if (videoSurface == null || !videoSurface.isValid()) return;
+            if (isCarLifeMode()) {
+                SiQiRelayBridge.setVirtualMainSurface(null);
+                if (carLifeReceiver != null) {
+                    carLifeReceiver.attachOutputSurface(videoSurface);
+                }
+            } else {
+                if (carLifeReceiver != null) {
+                    carLifeReceiver.attachOutputSurface(null);
+                }
+                SiQiRelayBridge.setVirtualMainSurface(videoSurface);
+            }
+        }
+
+        void rebindActiveSurface() {
+            attachSurfaceToActiveSource();
+            setVideoActive(computeInitialVideoActive());
+            updateStatus(null);
+            virtualPipeline.requestKeyframe();
+        }
+
         private void releaseVideoSurface() {
             SiQiRelayBridge.setVirtualMainSurface(null);
+            if (carLifeReceiver != null) {
+                carLifeReceiver.attachOutputSurface(null);
+            }
             if (videoSurface != null) {
                 try {
                     videoSurface.release();
@@ -319,10 +421,10 @@ public class VirtualDisplayStreamer implements KoveClusterServer.VideoControlCal
 
         private FrameLayout.LayoutParams buildTextureParams() {
             DiPlayConfigOptimizer.BikePresetSpec preset = DiPlayConfigOptimizer.getActivePresetSpec(context);
-            int targetTop = Math.max(0, Math.min(preset.viewportTop, CarPlayVirtualPipeline.HEIGHT - 64));
-            int targetH = Math.max(64, Math.min(preset.viewportHeight, CarPlayVirtualPipeline.HEIGHT - targetTop));
+            int targetTop = Math.max(0, Math.min(preset.viewportTop, activeStreamHeight - 64));
+            int targetH = Math.max(64, Math.min(preset.viewportHeight, activeStreamHeight - targetTop));
             FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                    CarPlayVirtualPipeline.WIDTH,
+                    activeStreamWidth,
                     targetH,
                     Gravity.TOP | Gravity.CENTER_HORIZONTAL
             );
@@ -333,7 +435,7 @@ public class VirtualDisplayStreamer implements KoveClusterServer.VideoControlCal
         private void applyVideoTransform(int viewW, int viewH) {
             if (videoTextureView == null) return;
             DiPlayConfigOptimizer.BikePresetSpec preset = DiPlayConfigOptimizer.getActivePresetSpec(context);
-            int w = viewW > 0 ? viewW : CarPlayVirtualPipeline.WIDTH;
+            int w = viewW > 0 ? viewW : activeStreamWidth;
             int h = viewH > 0 ? viewH : preset.viewportHeight;
 
             Matrix matrix = new Matrix();
@@ -357,6 +459,11 @@ public class VirtualDisplayStreamer implements KoveClusterServer.VideoControlCal
         }
 
         private String formatStageLine() {
+            if (isCarLifeMode()) {
+                return carLifeReceiver != null
+                        ? carLifeReceiver.getStatusText() + "\n请打开百度 CarLife+（纯安卓本机投屏）"
+                        : "本机 CarLife 模式待启动";
+            }
             String stage = SiQiRelayBridge.getSessionStage();
             String hint = SiQiRelayBridge.getLastDiagnosticHint();
             if (!SiQiRelayBridge.hasSession() && hint != null && !hint.isEmpty() && !stage.contains(hint)) {

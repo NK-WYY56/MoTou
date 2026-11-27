@@ -203,6 +203,10 @@ public class AutoConnectManager {
                 + ", ssid=" + wifi.ssid + ", subnet=" + chosenPrefix + ")");
         notifyUiStateChanged();
 
+        if (DiPlayConfigOptimizer.getProjectionSourceMode(context) == DiPlayConfigOptimizer.SOURCE_MODE_CARLIFE) {
+            Log.d(TAG, "Skipping wireless CarPlay auto-connect because Local CarLife mode is active");
+            return;
+        }
         if (isAutoConnectEnabled() && hasPairedIphone()) {
             startRetryCount = 0;
             triggerAutoStart("cluster_connected", false);
@@ -241,6 +245,9 @@ public class AutoConnectManager {
      */
     public void evaluateOnAppLaunch() {
         notifyUiStateChanged();
+        if (DiPlayConfigOptimizer.getProjectionSourceMode(context) == DiPlayConfigOptimizer.SOURCE_MODE_CARLIFE) {
+            return;
+        }
         if (!isAutoConnectEnabled() || !hasPairedIphone()) {
             Log.d(TAG, "Auto-connect waiting (enabled=" + isAutoConnectEnabled()
                     + ", iphone=" + hasPairedIphone() + ")");

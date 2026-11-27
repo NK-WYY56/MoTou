@@ -2,7 +2,7 @@
 import PackageDescription
 let package = Package(
     name: "TDSCarKit",
-    platforms: [.iOS(.v16), .macOS(.v13)],
+    platforms: [.iOS(.v15), .macOS(.v13)],
     products: [.library(name: "TDSCarKitCore", targets: ["TDSCarKitCore"])],
     targets: [
         .target(name: "CTDSCarKitCrypto"),

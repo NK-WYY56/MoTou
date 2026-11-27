@@ -24,6 +24,10 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
     private var skippedLocalVideo = false
     private var restartingAutomatically = false
     private var networkRestartCount = 0
+    private var manualStopSuppressesAutoStart = false
+    private var autoStartWorkItem: DispatchWorkItem?
+    private var wifiLeaveStopWorkItem: DispatchWorkItem?
+    private var wifiLeavePollTimer: Timer?
     private var networkStartupTask: Task<Void, Never>?
     private var localStartupID: UUID?
     private var startupHintTask: DispatchWorkItem?
@@ -66,8 +70,24 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
             else if running, UIApplication.shared.applicationState == .active { keepAlive.start() }
         }
     }
-    private var clusterWiFiSSID: String = "" {
-        didSet { UserDefaults.standard.set(clusterWiFiSSID, forKey: "siqiClusterWiFiSSID") }
+    var isAutoStartOnWiFiEnabled: Bool = true {
+        didSet {
+            UserDefaults.standard.set(isAutoStartOnWiFiEnabled, forKey: "siqiAutoStartOnWiFi")
+        }
+    }
+    var isAutoStopOnWiFiLeaveEnabled: Bool = true {
+        didSet {
+            UserDefaults.standard.set(isAutoStopOnWiFiLeaveEnabled, forKey: "siqiAutoStopOnWiFiLeave")
+            if !isAutoStopOnWiFiLeaveEnabled {
+                cancelWiFiLeaveStopTimer()
+            } else {
+                evaluateWiFiLeaveAutoStop()
+            }
+        }
+    }
+    private var clusterWiFiSSID: String {
+        get { SiqiWiFiPresetStore.shared.activeSSID }
+        set { SiqiWiFiPresetStore.shared.syncSSIDFromHomeInput(newValue) }
     }
 
     var isCarPlayRunning: Bool { running || waitingForNetwork }
@@ -93,6 +113,7 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
     private let wifiSpaceWarningLabel = SiqiStyle.makeSecondaryLabel("⚠️ 检测到热点名称包含空格，思骑仪表热点通常不含空格", size: 12)
     private let fixWifiSpaceButton = SiqiButton(title: "一键去空格", variant: .secondary, fontSize: 11, height: 28)
     private let connectWiFiButton = SiqiButton(title: "复制密码 12345678 · 连仪表 Wi-Fi", variant: .secondary, fontSize: 13, height: 42)
+    private let wifiPresetsButton = SiqiButton(title: "Wi-Fi 预设 · 切换/保存多个热点", variant: .secondary, fontSize: 13, height: 40)
 
     // Card 2: Self-hosted CarPlay
     private let audioChip = SiqiChipView()
@@ -145,7 +166,15 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
         }
 
         wifiPathMonitor.pathUpdateHandler = { [weak self] _ in
-            DispatchQueue.main.async { self?.refreshClusterCard() }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if ReceiverConfiguration.wifiIPv4Address() == nil {
+                    self.manualStopSuppressesAutoStart = false
+                }
+                self.refreshClusterCard()
+                self.evaluateWiFiLeaveAutoStop()
+                self.scheduleAutoStartCheck(trigger: "Wi-Fi 状态变化")
+            }
         }
         wifiPathMonitor.start(queue: DispatchQueue(label: "MoTou.wifiPath"))
 
@@ -167,11 +196,14 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         becomeFirstResponder()
+        scheduleAutoStartCheck(trigger: "进入页面")
     }
 
     deinit {
         wifiPathMonitor.cancel()
         networkStartupTask?.cancel()
+        autoStartWorkItem?.cancel()
+        cancelWiFiLeaveStopTimer()
         handlebar.stop()
         NotificationCenter.default.removeObserver(self)
     }
@@ -207,11 +239,9 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
         }
         selectedAppearance = ReceiverConfiguration.Appearance(rawValue: d.integer(forKey: "carPlayAppearance")) ?? .system
         isKeepAliveEnabled = d.object(forKey: "backgroundKeepAlive") as? Bool ?? true
-        let savedSSID = (d.string(forKey: "siqiClusterWiFiSSID")
-            ?? d.string(forKey: "siqiCustomWiFiSSID")
-            ?? d.string(forKey: "wifiSSID")
-            ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        clusterWiFiSSID = savedSSID
+        isAutoStartOnWiFiEnabled = d.object(forKey: "siqiAutoStartOnWiFi") as? Bool ?? true
+        isAutoStopOnWiFiLeaveEnabled = d.object(forKey: "siqiAutoStopOnWiFiLeave") as? Bool ?? true
+        SiqiWiFiPresetStore.shared.reload()
     }
 
     // MARK: - UI Construction (Android 摩投 3-card layout)
@@ -343,6 +373,11 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
             self?.showWiFiConnectionGuide()
         }, for: .touchUpInside)
         card.stack.addArrangedSubview(connectWiFiButton)
+
+        wifiPresetsButton.addAction(UIAction { [weak self] _ in
+            self?.openWiFiPresetsFromHome()
+        }, for: .touchUpInside)
+        card.stack.addArrangedSubview(wifiPresetsButton)
         return card
     }
 
@@ -580,10 +615,21 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
 
         wifiSSIDField.isEnabled = !running
         wifiSSIDField.alpha = running ? 0.65 : 1.0
+        wifiPresetsButton.isEnabled = !running
+        wifiPresetsButton.alpha = running ? 0.65 : 1.0
+        let store = SiqiWiFiPresetStore.shared
+        let pwdHint = store.isOpenNetwork ? "无密码" : "密码 \(store.activePassword)"
         connectWiFiButton.setTitle(
-            wifiIP == nil ? "复制默认密码 12345678 · 连仪表 Wi-Fi" : "复制默认密码 12345678 · 查看连接指引",
+            wifiIP == nil
+                ? (store.isOpenNetwork ? "连仪表 Wi-Fi（开放网络）" : "复制密码 \(store.activePassword) · 连仪表 Wi-Fi")
+                : (store.isOpenNetwork ? "当前预设：开放网络 · 查看连接指引" : "复制\(pwdHint) · 查看连接指引"),
             for: .normal
         )
+        if let activePreset = store.selectedPreset, !activePreset.ssid.isEmpty {
+            wifiPresetsButton.setTitle("Wi-Fi 预设：\(activePreset.name)（信道 \(activePreset.wifiChannel) · 共 \(store.presets.count) 个）  ›", for: .normal)
+        } else {
+            wifiPresetsButton.setTitle("Wi-Fi 预设 · 保存与切换多个仪表热点（\(store.presets.count)）  ›", for: .normal)
+        }
     }
 
     private func refreshHeaderAndCarPlayCard() {
@@ -663,13 +709,52 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
         }
     }
 
-    // MARK: - Start / Stop Session (Zero-preset Wi-Fi flow)
+    // MARK: - Start / Stop Session & Shortcuts Automation
+
+    func handleIncomingURL(_ url: URL) {
+        let host = (url.host ?? "").lowercased()
+        let path = url.path.lowercased()
+        if host == "stop" || path == "/stop" {
+            log("收到快捷指令 motou://stop，正在停止无线 CarPlay")
+            if isCarPlayRunning {
+                stop(userInitiated: true)
+            }
+            return
+        }
+        if host == "start" || host.isEmpty || path == "/start" {
+            log("收到快捷指令 motou://start，准备启动无线 CarPlay")
+            manualStopSuppressesAutoStart = false
+            navigationController?.popToRootViewController(animated: false)
+            if running { return }
+            guard let identity else {
+                refreshHeaderAndCarPlayCard()
+                return
+            }
+            if let address = ReceiverConfiguration.wifiIPv4Address() {
+                if !clusterWiFiSSID.isEmpty && !Self.containsSpace(clusterWiFiSSID) {
+                    let store = SiqiWiFiPresetStore.shared
+                    startSessionWithResolvedWiFi(
+                        address: address,
+                        ssid: clusterWiFiSSID,
+                        password: store.activePassword,
+                        channel: store.activeChannel,
+                        identity: identity
+                    )
+                } else {
+                    resolveSSIDThenStart(address: address, identity: identity)
+                }
+            } else {
+                waitForLocalNetwork()
+            }
+        }
+    }
 
     private func toggleReceiver() {
         if running || waitingForNetwork {
-            stop()
+            stop(userInitiated: true)
             return
         }
+        manualStopSuppressesAutoStart = false
         if !restartingAutomatically { networkRestartCount = 0 }
         clearStartupHint()
 
@@ -682,9 +767,41 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
             return
         }
 
-        // 本机 iAP2 无线握手（0x4301）必须携带当前已连接的 Wi-Fi 热点名称（密码默认 12345678）。
-        // 优先使用输入框记住的热点名；若为空则先尝试系统自动读取，LiveContainer/无权限时弹窗引导一次输入并自动记住。
+        // 本机 iAP2 无线握手（0x4301）必须携带当前已连接的 Wi-Fi 热点名称。
+        // 优先使用已选预设/输入框的热点名；若为空则尝试系统自动读取，无权限时弹窗引导一次输入并保存预设。
         resolveSSIDThenStart(address: address, identity: identity)
+    }
+
+    private func scheduleAutoStartCheck(trigger: String) {
+        autoStartWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            self?.maybeAutoStartIfEligible(trigger: trigger)
+        }
+        autoStartWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: item)
+    }
+
+    private func maybeAutoStartIfEligible(trigger: String) {
+        guard isAutoStartOnWiFiEnabled,
+              !running,
+              !waitingForNetwork,
+              !manualStopSuppressesAutoStart,
+              UIApplication.shared.applicationState == .active,
+              let identity,
+              let address = ReceiverConfiguration.wifiIPv4Address() else { return }
+
+        let ssid = (wifiSSIDField.text ?? clusterWiFiSSID).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !ssid.isEmpty, !Self.containsSpace(ssid) else { return }
+
+        let store = SiqiWiFiPresetStore.shared
+        log("检测到仪表 Wi-Fi「\(ssid)」已就绪（\(trigger)），自动启动本机 CarPlay")
+        startSessionWithResolvedWiFi(
+            address: address,
+            ssid: ssid,
+            password: store.activePassword,
+            channel: store.activeChannel,
+            identity: identity
+        )
     }
 
     private func tryAutoFillSSIDIfEmpty() {
@@ -717,6 +834,7 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
 
     private func resolveSSIDThenStart(address: String, identity: AccessoryIdentity) {
         view.endEditing(true)
+        let store = SiqiWiFiPresetStore.shared
         let rawInput = wifiSSIDField.text ?? clusterWiFiSSID
         let typedSSID = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
         if !typedSSID.isEmpty {
@@ -727,7 +845,13 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
             clusterWiFiSSID = typedSSID
             wifiSSIDField.text = typedSSID
             updateWiFiSpaceWarning(for: typedSSID)
-            startSessionWithResolvedWiFi(address: address, ssid: typedSSID, password: Self.defaultSiqiPassword, identity: identity)
+            startSessionWithResolvedWiFi(
+                address: address,
+                ssid: typedSSID,
+                password: store.activePassword,
+                channel: store.activeChannel,
+                identity: identity
+            )
             return
         }
 
@@ -741,7 +865,13 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
                 self.clusterWiFiSSID = clean
                 self.wifiSSIDField.text = clean
                 self.updateWiFiSpaceWarning(for: clean)
-                self.startSessionWithResolvedWiFi(address: address, ssid: clean, password: Self.defaultSiqiPassword, identity: identity)
+                self.startSessionWithResolvedWiFi(
+                    address: address,
+                    ssid: clean,
+                    password: store.activePassword,
+                    channel: store.activeChannel,
+                    identity: identity
+                )
             } else {
                 self.promptForClusterSSID(address: address, identity: identity)
             }
@@ -759,6 +889,7 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
 
     private func confirmSpaceInSSID(address: String, ssid: String, identity: AccessoryIdentity) {
         let cleaned = Self.removingSpaces(ssid)
+        let store = SiqiWiFiPresetStore.shared
         let alert = UIAlertController(
             title: "检测到 Wi-Fi 名称含空格",
             message: "当前填写的热点名为「\(ssid)」，中间包含空格（常见于输入法打完下划线后自动补空格）。\n\n思骑仪表热点通常不含空格（如「\(cleaned)」），多一个空格会导致 45 秒后提示「未收到 CarPlay 控制连接」。",
@@ -769,14 +900,26 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
             self.clusterWiFiSSID = cleaned
             self.wifiSSIDField.text = cleaned
             self.updateWiFiSpaceWarning(for: cleaned)
-            self.startSessionWithResolvedWiFi(address: address, ssid: cleaned, password: Self.defaultSiqiPassword, identity: identity)
+            self.startSessionWithResolvedWiFi(
+                address: address,
+                ssid: cleaned,
+                password: store.activePassword,
+                channel: store.activeChannel,
+                identity: identity
+            )
         })
         alert.addAction(UIAlertAction(title: "保留空格继续启动", style: .default) { [weak self] _ in
             guard let self else { return }
             self.clusterWiFiSSID = ssid
             self.wifiSSIDField.text = ssid
             self.updateWiFiSpaceWarning(for: ssid)
-            self.startSessionWithResolvedWiFi(address: address, ssid: ssid, password: Self.defaultSiqiPassword, identity: identity)
+            self.startSessionWithResolvedWiFi(
+                address: address,
+                ssid: ssid,
+                password: store.activePassword,
+                channel: store.activeChannel,
+                identity: identity
+            )
         })
         alert.addAction(UIAlertAction(title: "取消", style: .cancel))
         present(alert, animated: true)
@@ -785,7 +928,7 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
     private func promptForClusterSSID(address: String, identity: AccessoryIdentity) {
         let alert = UIAlertController(
             title: "请输入当前仪表 Wi-Fi 名称",
-            message: "受 iOS / LiveContainer 限制无法自动读取当前 Wi-Fi 名称，但本机 iAP2 无线 CarPlay 握手必须携带热点名。\n\n仅需输入一次（如 CQKY_xxxx，注意不要有空格），后续自动记住，密码默认 12345678。",
+            message: "受 iOS / LiveContainer 限制无法自动读取当前 Wi-Fi 名称，但本机 iAP2 无线 CarPlay 握手必须携带热点名。\n\n仅需输入一次（如 CQKY_xxxx，注意不要有空格），后续会自动保存为预设。",
             preferredStyle: .alert
         )
         alert.addTextField { field in
@@ -808,15 +951,22 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
                 self.confirmSpaceInSSID(address: address, ssid: input, identity: identity)
                 return
             }
+            let store = SiqiWiFiPresetStore.shared
             self.clusterWiFiSSID = input
             self.wifiSSIDField.text = input
             self.updateWiFiSpaceWarning(for: input)
-            self.startSessionWithResolvedWiFi(address: address, ssid: input, password: Self.defaultSiqiPassword, identity: identity)
+            self.startSessionWithResolvedWiFi(
+                address: address,
+                ssid: input,
+                password: store.activePassword,
+                channel: store.activeChannel,
+                identity: identity
+            )
         })
         present(alert, animated: true)
     }
 
-    private func startSessionWithResolvedWiFi(address: String, ssid: String, password: String, identity: AccessoryIdentity) {
+    private func startSessionWithResolvedWiFi(address: String, ssid: String, password: String, channel: UInt8, identity: AccessoryIdentity) {
         guard !running else { return }
 
         let plan = selectedBikePreset.resolvePlan(
@@ -835,7 +985,7 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
             height: plan.carPlayHeight,
             maxFPS: 30,
             videoCodec: .h264,
-            wifiChannel: 36,
+            wifiChannel: channel,
             audioEnabled: false,
             rightHandDrive: false,
             deviceID: ReceiverConfiguration.persistentDeviceID(),
@@ -862,7 +1012,8 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
             return
         }
 
-        log("使用仪表热点「\(ssid)」启动本机 CarPlay（地址 \(address)，默认密码 12345678，推流 \(plan.streamWidth)×\(plan.streamHeight)）")
+        let pwdLabel = password.isEmpty ? "开放网络(无密码)" : (password == Self.defaultSiqiPassword ? "默认密码 12345678" : "自定义密码")
+        log("使用仪表热点「\(ssid)」启动本机 CarPlay（地址 \(address)，\(pwdLabel)，信道 \(channel)，推流 \(plan.streamWidth)×\(plan.streamHeight)）")
 
         liveCanvasSize = (plan.carPlayWidth, plan.carPlayHeight)
         liveStreamSize = (plan.streamWidth, plan.streamHeight)
@@ -870,6 +1021,8 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
         sessionHasVehicleButton = CarPlayInfo.vehicleButtonSize(in: config) != nil
         if isKeepAliveEnabled { keepAlive.start() }
         running = true
+        cancelWiFiLeaveStopTimer()
+        startWiFiLeavePollingIfNeeded()
         handlebar.setSessionActive(true)
         clusterSnapshot = .idle
         UIApplication.shared.isIdleTimerDisabled = true
@@ -888,10 +1041,16 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
         watchStartupAddress(address)
     }
 
-    private func stop() {
+    private func stop(userInitiated: Bool = false) {
+        if userInitiated {
+            manualStopSuppressesAutoStart = true
+        }
         localStartupID = nil
         networkStartupTask?.cancel()
         networkStartupTask = nil
+        autoStartWorkItem?.cancel()
+        autoStartWorkItem = nil
+        cancelWiFiLeaveStopTimer()
         waitingForNetwork = false
         clearStartupHint()
         running = false
@@ -912,6 +1071,49 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
         UIApplication.shared.isIdleTimerDisabled = false
         log("无线 CarPlay 已停止")
         refreshAllUI()
+    }
+
+    private func startWiFiLeavePollingIfNeeded() {
+        wifiLeavePollTimer?.invalidate()
+        let timer = Timer(timeInterval: 15, repeats: true) { [weak self] _ in
+            self?.evaluateWiFiLeaveAutoStop()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        wifiLeavePollTimer = timer
+    }
+
+    private func cancelWiFiLeaveStopTimer() {
+        wifiLeaveStopWorkItem?.cancel()
+        wifiLeaveStopWorkItem = nil
+        wifiLeavePollTimer?.invalidate()
+        wifiLeavePollTimer = nil
+    }
+
+    private func evaluateWiFiLeaveAutoStop() {
+        guard running, isAutoStopOnWiFiLeaveEnabled else {
+            wifiLeaveStopWorkItem?.cancel()
+            wifiLeaveStopWorkItem = nil
+            return
+        }
+        let hasWiFi = ReceiverConfiguration.wifiIPv4Address() != nil
+        if hasWiFi || clusterSnapshot.videoActive {
+            if wifiLeaveStopWorkItem != nil {
+                wifiLeaveStopWorkItem?.cancel()
+                wifiLeaveStopWorkItem = nil
+                log("仪表 Wi-Fi 已恢复，取消 3 分钟自动停止倒计时")
+            }
+            return
+        }
+        guard wifiLeaveStopWorkItem == nil else { return }
+        log("检测到已离开仪表 Wi-Fi，若 3 分钟内未重连将自动停止释放后台")
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.running, self.isAutoStopOnWiFiLeaveEnabled else { return }
+            guard ReceiverConfiguration.wifiIPv4Address() == nil && !self.clusterSnapshot.videoActive else { return }
+            self.log("离开仪表 Wi-Fi 已满 3 分钟，自动停止无线 CarPlay 并释放后台")
+            self.stop(userInitiated: false)
+        }
+        wifiLeaveStopWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 180, execute: work)
     }
 
     private func waitForLocalNetwork() {
@@ -1010,12 +1212,34 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
         handlebar.triggerSimulated(action)
     }
 
+    func didUpdateWiFiPresets() {
+        SiqiWiFiPresetStore.shared.reload()
+        wifiSSIDField.text = clusterWiFiSSID
+        updateWiFiSpaceWarning(for: clusterWiFiSSID)
+        refreshAllUI()
+    }
+
+    private func openWiFiPresetsFromHome() {
+        let vc = SiqiWiFiPresetsViewController { [weak self] in
+            self?.didUpdateWiFiPresets()
+        }
+        navigationController?.pushViewController(vc, animated: true)
+    }
+
     private func showWiFiConnectionGuide() {
-        UIPasteboard.general.string = Self.defaultSiqiPassword
+        let store = SiqiWiFiPresetStore.shared
+        let pwd = store.activePassword
+        let title: String
+        if store.isOpenNetwork {
+            title = "当前预设为开放热点（无需密码）"
+        } else {
+            UIPasteboard.general.string = pwd
+            title = "已复制热点密码：\(pwd)"
+        }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         let alert = UIAlertController(
-            title: "已复制默认密码：12345678",
-            message: "受 iOS 18+ 与 LiveContainer 系统限制，应用无法直接跳转系统「无线局域网」页面。\n\n请从屏幕右上角下拉「控制中心」（长按 Wi-Fi 图标）或手动打开系统「设置 › 无线局域网」连接思骑仪表热点，连上后返回本页并在上方输入框核对热点名称即可一键启动。",
+            title: title,
+            message: "受系统限制，应用无法直接跳转系统「无线局域网」页面。\n\n请从屏幕右上角下拉「控制中心」（长按 Wi-Fi 图标）或手动打开系统「设置 › 无线局域网」连接思骑仪表热点，连上后返回本页（开启「自动启动」后可自动拉起，或点击下方「Wi-Fi 预设」切换保存的热点）。",
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: "知道了", style: .default))
@@ -1025,7 +1249,7 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
     private func showBluetoothConnectionGuide() {
         let alert = UIAlertController(
             title: "连接蓝牙按键控制器",
-            message: "受 iOS 18+ 与 LiveContainer 系统限制，应用无法直接跳转系统「蓝牙」页面。\n\n请从屏幕右上角下拉「控制中心」或手动打开系统「设置 › 蓝牙」配对手把蓝牙方向键 / 游戏手柄控制器，配对后返回本页会自动识别。",
+            message: "受系统限制，应用无法直接跳转系统「蓝牙」页面。\n\n请从屏幕右上角下拉「控制中心」或手动打开系统「设置 › 蓝牙」配对手把蓝牙方向键 / 游戏手柄控制器，配对后返回本页会自动识别。",
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: "知道了", style: .default))
@@ -1035,16 +1259,24 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
     func showGuideSheet(from presenter: UIViewController) {
         let msg =
             "一、连接仪表同时保住 5G 上网：\n" +
-            "1. 点首页「连接仪表 Wi-Fi」前往系统设置，连上思骑仪表热点（如 CQKY_xxxx，默认密码 12345678）。\n" +
+            "1. 前往系统设置连上思骑仪表热点（如 CQKY_xxxx，默认密码 12345678）。\n" +
             "2. 点该 Wi-Fi 右侧「i」→「配置 IP」改为「手动」。\n" +
             "3. 填好与仪表同网段的 IP 地址和子网掩码（如 255.255.255.0），将「路由器」和「DNS」全部留空并存储。\n" +
             "4. 此时高德/音乐继续走 5G，思骑仪表走局域网 Wi-Fi。\n\n" +
             "二、手机息屏放兜里继续投屏：\n" +
             "1. 首次连通后，前往 iPhone「设置 › 通用 › CarPlay › 摩投」。\n" +
             "2. 打开「锁定时允许 CarPlay」。\n" +
-            "3. 保持本 App 设置中「锁屏与后台继续运行」开启即可。"
-        let alert = UIAlertController(title: "5G 联网与息屏投屏指引", message: msg, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "知道了", style: .default))
+            "3. 保持本 App 设置中「锁屏与后台继续运行」开启即可。\n\n" +
+            "三、进阶：快捷指令全自动拉起（解锁状态）：\n" +
+            "1. 打开 iPhone 自带「快捷指令 › 自动化 › + › 无线局域网」。\n" +
+            "2. 选中你的仪表 Wi-Fi（勾选「加入网络」+「立即运行」）。\n" +
+            "3. 添加操作「打开 URL」→ 填入 motou://start → 完成。\n" +
+            "4. 以后解锁状态下连上仪表 Wi-Fi 即可自动拉起并投屏；骑完离开仪表 Wi-Fi 满 3 分钟将自动停止释放后台。"
+        let alert = UIAlertController(title: "5G 联网、息屏与自动化教程", message: msg, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "复制 motou://start", style: .default) { _ in
+            UIPasteboard.general.string = "motou://start"
+        })
+        alert.addAction(UIAlertAction(title: "知道了", style: .cancel))
         presenter.present(alert, animated: true)
     }
 
@@ -1226,9 +1458,12 @@ final class ReceiverViewController: UIViewController, SiqiSettingsDelegate {
         controllerSnapshot = handlebar.currentSnapshot()
         tryAutoFillSSIDIfEmpty()
         refreshAllUI()
+        evaluateWiFiLeaveAutoStop()
+        scheduleAutoStartCheck(trigger: "回到前台")
     }
 
     @objc private func foregrounded() {
+        manualStopSuppressesAutoStart = false
         controllerSnapshot = handlebar.currentSnapshot()
         refreshAllUI()
         if running {

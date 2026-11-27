@@ -50,6 +50,7 @@ public class SettingsActivity extends Activity {
     private Button btnIconXl;
     private Button btnIconLarge;
     private Button btnIconStd;
+    private Button btnResolutionTuner;
     private Button btnOptimizeConfig;
     private Button btnForceIdr;
     private Button btnScanUsb;
@@ -62,7 +63,7 @@ public class SettingsActivity extends Activity {
     private Button btnAuthorGithub;
     private Button btnAuthorDouyin;
 
-    private static final String AUTHOR_GITHUB_URL = "https://github.com/NK-WYY56/SiQiCarPlay";
+    private static final String AUTHOR_GITHUB_URL = "https://github.com/NK-WYY56/MoTou";
     private static final String AUTHOR_DOUYIN_URL = "https://v.douyin.com/1BVqQqBYtuc/";
 
     private BridgeService bridgeService;
@@ -158,6 +159,7 @@ public class SettingsActivity extends Activity {
         btnIconXl = findViewById(R.id.btn_icon_xl);
         btnIconLarge = findViewById(R.id.btn_icon_large);
         btnIconStd = findViewById(R.id.btn_icon_std);
+        btnResolutionTuner = findViewById(R.id.btn_resolution_tuner);
         btnOptimizeConfig = findViewById(R.id.btn_optimize_config);
 
         btnForceIdr = findViewById(R.id.btn_force_idr);
@@ -204,6 +206,7 @@ public class SettingsActivity extends Activity {
         setSecondaryText(R.id.tv_credits_summary);
 
         DiPlayStyle.styleSecondaryButton(btnBack, palette);
+        DiPlayStyle.styleSecondaryButton(btnResolutionTuner, palette);
         DiPlayStyle.styleSecondaryButton(btnOptimizeConfig, palette);
         DiPlayStyle.styleSecondaryButton(btnForceIdr, palette);
         DiPlayStyle.styleSecondaryButton(btnScanUsb, palette);
@@ -267,6 +270,7 @@ public class SettingsActivity extends Activity {
         });
 
         rowBikeModelPicker.setOnClickListener(v -> showBikeModelPickerDialog());
+        btnResolutionTuner.setOnClickListener(v -> startActivity(new Intent(this, ResolutionTunerActivity.class)));
 
         btnIconXl.setOnClickListener(v -> applyIconPreset(DiPlayConfigOptimizer.ICON_MODE_XL, "已选超大图标"));
         btnIconLarge.setOnClickListener(v -> applyIconPreset(DiPlayConfigOptimizer.ICON_MODE_LARGE, "已选大图标推荐"));
@@ -328,7 +332,7 @@ public class SettingsActivity extends Activity {
     }
 
     private void showBikeModelPickerDialog() {
-        DiPlayConfigOptimizer.BikePresetSpec[] presets = DiPlayConfigOptimizer.getAllPresets();
+        DiPlayConfigOptimizer.BikePresetSpec[] presets = DiPlayConfigOptimizer.getAllPresets(this);
         CharSequence[] items = new CharSequence[presets.length];
         int currentId = DiPlayConfigOptimizer.getBikeModelPreset(this);
         int checkedIndex = 0;

@@ -1,0 +1,312 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tuner_root_scroll"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/diplay_window_bg"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="20dp"
+        android:paddingTop="18dp"
+        android:paddingBottom="32dp">
+
+        <!-- Top Navigation Bar -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingBottom="18dp">
+
+            <Button
+                android:id="@+id/btn_tuner_back"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:paddingHorizontal="14dp"
+                android:text="‹ 返回"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_tuner_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="14dp"
+                android:text="手动调节分辨率"
+                android:textColor="@color/diplay_text_primary"
+                android:textSize="21sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- Card 1: Starter Templates -->
+        <LinearLayout
+            android:id="@+id/card_tuner_templates"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp"
+            android:layout_marginBottom="14dp">
+
+            <TextView
+                android:id="@+id/tv_kicker_templates"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:letterSpacing="0.08"
+                android:text="快捷模板（解决不同仪表黑屏）"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_templates_desc"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="其他车型连上 15456 但黑屏时，通常是仪表解码器只认特定推流分辨率（常见 800×480 或 1024×600）。先点常见模板测试出画，再微调比例与留白。"
+                android:textColor="@color/diplay_text_secondary"
+                android:textSize="12sp"
+                android:lineSpacingMultiplier="1.25" />
+
+            <LinearLayout
+                android:id="@+id/layout_template_buttons"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="10dp" />
+        </LinearLayout>
+
+        <!-- Card 2: Fine-tuning Parameters -->
+        <LinearLayout
+            android:id="@+id/card_tuner_params"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp"
+            android:layout_marginBottom="14dp">
+
+            <TextView
+                android:id="@+id/tv_kicker_params"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:letterSpacing="0.08"
+                android:text="详细参数微调"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_label_bike_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="车型备注名（导出时附带）"
+                android:textColor="@color/diplay_text_primary"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/et_bike_name"
+                android:layout_width="match_parent"
+                android:layout_height="42dp"
+                android:layout_marginTop="6dp"
+                android:hint="例如 凯越 321RR"
+                android:inputType="text"
+                android:maxLines="1"
+                android:paddingHorizontal="12dp"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/tv_label_stream_res"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="1. 仪表推流分辨率（69B头与 H.264，防黑屏核心）"
+                android:textColor="@color/diplay_text_primary"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/row_stream_w"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal" />
+
+            <LinearLayout
+                android:id="@+id/row_stream_h"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal" />
+
+            <TextView
+                android:id="@+id/tv_label_canvas_res"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="2. CarPlay / CarLife 虚拟画布（防图标拉伸）"
+                android:textColor="@color/diplay_text_primary"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/row_canvas_w"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal" />
+
+            <LinearLayout
+                android:id="@+id/row_canvas_h"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal" />
+
+            <Button
+                android:id="@+id/btn_sync_canvas_to_stream"
+                android:layout_width="match_parent"
+                android:layout_height="38dp"
+                android:layout_marginTop="8dp"
+                android:text="画布尺寸同步等于推流分辨率"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/tv_label_viewport"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="3. 有效视口范围（避让上下仪表栏）"
+                android:textColor="@color/diplay_text_primary"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/row_vp_top"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal" />
+
+            <LinearLayout
+                android:id="@+id/row_vp_h"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal" />
+
+            <Button
+                android:id="@+id/btn_fill_full_viewport"
+                android:layout_width="match_parent"
+                android:layout_height="38dp"
+                android:layout_marginTop="8dp"
+                android:text="视口铺满整个推流高度（y=0, h=推流高）"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/tv_label_physical"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="4. 图标物理宽度与直角边角"
+                android:textColor="@color/diplay_text_primary"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/row_physical_mm"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/tv_square_corners_label"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="直角无圆角黑边（cornerMasks）"
+                    android:textColor="@color/diplay_text_primary"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <Switch
+                    android:id="@+id/sw_square_corners"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tv_tuner_preview"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:textColor="@color/diplay_text_secondary"
+                android:textSize="12sp"
+                android:lineSpacingMultiplier="1.25" />
+        </LinearLayout>
+
+        <!-- Card 3: Save, Apply & Export -->
+        <LinearLayout
+            android:id="@+id/card_tuner_actions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <TextView
+                android:id="@+id/tv_kicker_actions"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:letterSpacing="0.08"
+                android:text="保存生效与导出分享"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btn_tuner_save_apply"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:layout_marginTop="12dp"
+                android:text="保存并启用自定义分辨率"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btn_tuner_export"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="10dp"
+                android:text="导出最终分辨率配置（复制并分享）"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btn_tuner_reset_kove"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:layout_marginTop="10dp"
+                android:text="恢复凯越 450RR 实测基准"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/tv_tuner_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:textColor="@color/diplay_text_secondary"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

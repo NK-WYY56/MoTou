@@ -170,6 +170,33 @@
                     android:textStyle="bold" />
             </LinearLayout>
 
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="12dp">
+
+                <Button
+                    android:id="@+id/btn_mode_carplay"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:maxLines="1"
+                    android:text="无线 CarPlay (中继)"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/btn_mode_carlife"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="4dp"
+                    android:maxLines="1"
+                    android:text="本机 CarLife (纯安卓)"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
             <TextView
                 android:id="@+id/tv_iphone_session"
                 android:layout_width="wrap_content"

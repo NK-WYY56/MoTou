@@ -67,6 +67,12 @@
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|screenLayout|uiMode" />
 
+        <activity
+            android:name=".ResolutionTunerActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|screenLayout|uiMode" />
+
         <!-- Embedded DiPlay settings/pairing host kept accessible in-app; hide duplicate launcher icon -->
         <activity
             android:name="com.shilapi.xcertplay.DiPlayActivity"

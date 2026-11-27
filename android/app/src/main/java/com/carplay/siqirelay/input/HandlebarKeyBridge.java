@@ -7,6 +7,7 @@ import android.util.Log;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 
+import com.carplay.siqirelay.carlife.CarLifeLocalReceiver;
 import com.carplay.siqirelay.carplay.CarPlayDongleManager;
 import com.shilapi.xcertplay.SiQiRelayBridge;
 
@@ -68,6 +69,7 @@ public class HandlebarKeyBridge {
     private final List<KeyLog> history = new CopyOnWriteArrayList<>();
 
     private volatile CarPlayDongleManager dongleManager;
+    private volatile CarLifeLocalReceiver carLifeReceiver;
 
     private long confirmDownTime = 0;
     private boolean confirmLongHandled = false;
@@ -91,6 +93,10 @@ public class HandlebarKeyBridge {
         this.dongleManager = dongleManager;
     }
 
+    public void setCarLifeReceiver(CarLifeLocalReceiver receiver) {
+        this.carLifeReceiver = receiver;
+    }
+
     public void addListener(OnKeyEventListener listener) {
         if (listener != null && !listeners.contains(listener)) {
             listeners.add(listener);
@@ -107,6 +113,8 @@ public class HandlebarKeyBridge {
 
     private boolean hasActiveCarPlayTarget() {
         if (SiQiRelayBridge.hasSession()) return true;
+        CarLifeLocalReceiver cl = carLifeReceiver;
+        if (cl != null && cl.isConnected()) return true;
         CarPlayDongleManager dm = dongleManager;
         return dm != null && dm.isConnected();
     }
@@ -177,9 +185,17 @@ public class HandlebarKeyBridge {
             dm.sendKey(action.dongleCode);
         }
 
-        boolean dispatchedInProcess = injectCarPlayAction(action);
+        boolean dispatchedInProcess = false;
+        CarLifeLocalReceiver cl = carLifeReceiver;
+        if (cl != null && cl.isConnected()) {
+            cl.sendHardKey(action, isLongPress);
+            dispatchedInProcess = true;
+        }
+        if (injectCarPlayAction(action)) {
+            dispatchedInProcess = true;
+        }
         if (!dispatchedInProcess) {
-            Log.d(TAG, "In-process CarPlay target inactive for key " + action.title);
+            Log.d(TAG, "In-process CarPlay/CarLife target inactive for key " + action.title);
         }
 
         handler.post(() -> {

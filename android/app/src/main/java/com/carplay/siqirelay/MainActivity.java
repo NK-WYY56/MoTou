@@ -2,6 +2,7 @@ package com.carplay.siqirelay;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.KeyguardManager;
 import android.content.ComponentName;
 import android.content.Context;
@@ -24,6 +25,7 @@ import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.carplay.siqirelay.carlife.CarLifeLocalReceiver;
 import com.carplay.siqirelay.carplay.AutoConnectManager;
 import com.carplay.siqirelay.carplay.DiPlayConfigOptimizer;
 import com.carplay.siqirelay.input.BluetoothControllerHelper;
@@ -63,6 +65,8 @@ public class MainActivity extends Activity {
     private TextView tvKeyLog;
 
     private Button btnOpenSettings;
+    private Button btnModeCarplay;
+    private Button btnModeCarlife;
     private Button btnStartVirtualCarplay;
     private Button btnOpenDiplaySetup;
     private Button btnEnterCarplay;
@@ -70,6 +74,7 @@ public class MainActivity extends Activity {
     private Button btnEnableGlobalKeys;
 
     private KoveClusterServer.ClusterStateListener uiClusterListener;
+    private CarLifeLocalReceiver.Listener carLifeListener;
     private HandlebarKeyBridge.OnKeyEventListener handlebarKeyListener;
     private InputManager inputManager;
     private DiPlayStyle.Palette palette;
@@ -247,6 +252,8 @@ public class MainActivity extends Activity {
         tvIphoneSession = findViewById(R.id.tv_iphone_session);
         tvAutoConnectStatus = findViewById(R.id.tv_auto_connect_status);
         tvAudioRouteChip = findViewById(R.id.tv_audio_route_chip);
+        btnModeCarplay = findViewById(R.id.btn_mode_carplay);
+        btnModeCarlife = findViewById(R.id.btn_mode_carlife);
         btnStartVirtualCarplay = findViewById(R.id.btn_start_virtual_carplay);
         btnOpenDiplaySetup = findViewById(R.id.btn_open_diplay_setup);
         btnEnterCarplay = findViewById(R.id.btn_enter_carplay);
@@ -295,7 +302,26 @@ public class MainActivity extends Activity {
             startActivity(new Intent(this, SettingsActivity.class));
         });
 
+        btnModeCarplay.setOnClickListener(v -> switchProjectionMode(DiPlayConfigOptimizer.SOURCE_MODE_CARPLAY));
+        btnModeCarlife.setOnClickListener(v -> switchProjectionMode(DiPlayConfigOptimizer.SOURCE_MODE_CARLIFE));
+
         btnStartVirtualCarplay.setOnClickListener(v -> {
+            if (isCarLifeMode()) {
+                if (bridgeService == null || bridgeService.getCarLifeReceiver() == null) {
+                    Toast.makeText(this, "后台服务尚未就绪", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                CarLifeLocalReceiver cl = bridgeService.getCarLifeReceiver();
+                if (cl.isRunning()) {
+                    bridgeService.stopCarLifeReceiver();
+                    Toast.makeText(this, "已停止本机 CarLife 接收", Toast.LENGTH_SHORT).show();
+                } else {
+                    bridgeService.startCarLifeReceiver();
+                    Toast.makeText(this, "正在等待本机百度 CarLife+ 接入", Toast.LENGTH_SHORT).show();
+                }
+                updateIphoneUi();
+                return;
+            }
             AutoConnectManager.getInstance(this).markSessionManual();
             if (SiQiRelayBridge.hasSession()) {
                 SiQiRelayBridge.stopCarPlaySession(this, () -> runOnUiThread(this::updateIphoneUi));
@@ -321,18 +347,35 @@ public class MainActivity extends Activity {
             }
         });
 
-        btnOpenDiplaySetup.setOnClickListener(v -> new Thread(() -> {
-            DiPlayConfigOptimizer.applyOptimizedConfig(MainActivity.this, false);
-            runOnUiThread(() -> {
-                try {
-                    SiQiRelayBridge.launchDiPlayHome(MainActivity.this, "home");
-                } catch (Exception e) {
-                    Toast.makeText(MainActivity.this, "无法打开 DiPlay 向导: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        btnOpenDiplaySetup.setOnClickListener(v -> {
+            if (isCarLifeMode()) {
+                String pkg = CarLifeLocalReceiver.launchLocalCarLifeApp(this);
+                if (pkg == null) {
+                    new AlertDialog.Builder(this)
+                            .setTitle("未检测到百度 CarLife+")
+                            .setMessage("请先安装「百度 CarLife+」（或系统自带「车联助手」），打开后若未自动投屏，返回点击「启动本机 CarLife 接收」即可与本机 7240 端口本地互联。")
+                            .setPositiveButton("确定", null)
+                            .show();
                 }
-            });
-        }, "DiPlaySetupLaunch").start());
+                return;
+            }
+            new Thread(() -> {
+                DiPlayConfigOptimizer.applyOptimizedConfig(MainActivity.this, false);
+                runOnUiThread(() -> {
+                    try {
+                        SiQiRelayBridge.launchDiPlayHome(MainActivity.this, "home");
+                    } catch (Exception e) {
+                        Toast.makeText(MainActivity.this, "无法打开 DiPlay 向导: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }, "DiPlaySetupLaunch").start();
+        });
 
         btnEnterCarplay.setOnClickListener(v -> {
+            if (isCarLifeMode()) {
+                showCarLifeGuideDialog();
+                return;
+            }
             AutoConnectManager.getInstance(this).markSessionManual();
             new Thread(() -> {
                 DiPlayConfigOptimizer.applyOptimizedConfig(MainActivity.this, false);
@@ -411,7 +454,92 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean isCarLifeMode() {
+        return DiPlayConfigOptimizer.getProjectionSourceMode(this) == DiPlayConfigOptimizer.SOURCE_MODE_CARLIFE;
+    }
+
+    private void switchProjectionMode(int mode) {
+        if (DiPlayConfigOptimizer.getProjectionSourceMode(this) == mode) return;
+        if (bridgeService != null) {
+            bridgeService.setProjectionSourceMode(mode);
+        } else {
+            DiPlayConfigOptimizer.setProjectionSourceMode(this, mode);
+        }
+        updateIphoneUi();
+    }
+
+    private void showCarLifeGuideDialog() {
+        int[] canvas = DiPlayConfigOptimizer.getEffectiveCarLifeCanvasSize(this);
+        DiPlayConfigOptimizer.BikePresetSpec spec = DiPlayConfigOptimizer.getActivePresetSpec(this);
+        new AlertDialog.Builder(this)
+                .setTitle("本机 CarLife 使用指引（纯安卓）")
+                .setMessage(
+                        "无需 iPhone，直接使用本台安卓手机的高德地图与音乐投屏至思骑仪表：\n\n" +
+                        "1. 第 1 步先在仪表开启投屏，手机连上仪表 Wi-Fi。\n" +
+                        "2. 点击「启动本机 CarLife 接收」（或在仪表连上时自动启动），摩投将在后台按 " +
+                        canvas[0] + "×" + canvas[1] + " 画布协商并映射至仪表 " + spec.streamWidth + "×" + spec.streamHeight + "。\n" +
+                        "3. 点「打开百度 CarLife+」启动百度 CarLife+（或兼容车联助手），连接本机 127.0.0.1 车机端即可开始投屏。\n" +
+                        "4. 音频默认留在手机端直接播放到头盔蓝牙耳机；手把方向键支持控制 CarLife 上下确认与返回。")
+                .setPositiveButton("知道了", null)
+                .show();
+    }
+
     private void updateIphoneUi() {
+        boolean carLife = isCarLifeMode();
+        DiPlayStyle.styleSegmentedButton(btnModeCarplay, palette, !carLife);
+        DiPlayStyle.styleSegmentedButton(btnModeCarlife, palette, carLife);
+
+        TextView tvKicker = findViewById(R.id.tv_kicker_iphone);
+        if (carLife) {
+            if (tvKicker != null) tvKicker.setText("2 · 本机 CARLIFE (纯安卓)");
+            tvAudioRouteChip.setText("音频: 本机蓝牙耳机");
+            DiPlayStyle.styleChip(tvAudioRouteChip, palette, palette.accent);
+
+            btnOpenDiplaySetup.setText("打开百度 CarLife+");
+            btnEnterCarplay.setText("本机 CarLife 说明");
+
+            CarLifeLocalReceiver cl = bridgeService != null ? bridgeService.getCarLifeReceiver() : null;
+            boolean clRunning = cl != null && cl.isRunning();
+            CarLifeLocalReceiver.State st = cl != null ? cl.getState() : CarLifeLocalReceiver.State.STOPPED;
+
+            if (clRunning) {
+                btnStartVirtualCarplay.setText("停止本机 CarLife 接收");
+                DiPlayStyle.styleDangerButton(btnStartVirtualCarplay, palette);
+            } else {
+                btnStartVirtualCarplay.setText("启动本机 CarLife 接收");
+                DiPlayStyle.stylePrimaryButton(btnStartVirtualCarplay, palette);
+            }
+
+            if (st == CarLifeLocalReceiver.State.STREAMING) {
+                tvIphoneSession.setText("本机 CarLife 正在向仪表投屏");
+                tvIphoneSession.setTextColor(palette.success);
+                tvAutoConnectStatus.setText("输入 " + cl.getNegotiatedWidth() + "×" + cl.getNegotiatedHeight()
+                        + " · 已解码 " + cl.getDecodedFrames() + " 帧（支持息屏骑行与手把按键）");
+                tvAutoConnectStatus.setTextColor(palette.success);
+            } else if (st == CarLifeLocalReceiver.State.HANDSHAKING) {
+                tvIphoneSession.setText("已握手中 · 等待 CarLife 视频流");
+                tvIphoneSession.setTextColor(palette.accent);
+                tvAutoConnectStatus.setText(cl.getStatusText());
+                tvAutoConnectStatus.setTextColor(palette.textSecondary);
+            } else if (clRunning) {
+                tvIphoneSession.setText("等待本机 CarLife+ 接入");
+                tvIphoneSession.setTextColor(palette.warning);
+                tvAutoConnectStatus.setText(cl.getStatusText());
+                tvAutoConnectStatus.setTextColor(palette.textSecondary);
+            } else {
+                tvIphoneSession.setText("本机 CarLife 就绪（无需 iPhone）");
+                tvIphoneSession.setTextColor(palette.textPrimary);
+                int[] canvas = DiPlayConfigOptimizer.getEffectiveCarLifeCanvasSize(this);
+                tvAutoConnectStatus.setText("协商画布 " + canvas[0] + "×" + canvas[1] + " · 点下方启动后打开百度 CarLife+ 即可投屏");
+                tvAutoConnectStatus.setTextColor(palette.textSecondary);
+            }
+            return;
+        }
+
+        if (tvKicker != null) tvKicker.setText("2 · 无线 CARPLAY (中继)");
+        btnOpenDiplaySetup.setText("配对 / 选择 iPhone");
+        btnEnterCarplay.setText("全屏预览 / 触控");
+
         boolean headsetAudio = DiPlayConfigOptimizer.isHeadsetAudioDefault(this);
         tvAudioRouteChip.setText(headsetAudio ? "音频: 蓝牙耳机" : "音频: 手机播放");
         DiPlayStyle.styleChip(tvAudioRouteChip, palette, headsetAudio ? palette.accent : palette.warning);
@@ -517,7 +645,27 @@ public class MainActivity extends Activity {
             server.addListener(uiClusterListener);
         }
 
+        CarLifeLocalReceiver cl = bridgeService.getCarLifeReceiver();
+        if (cl != null) {
+            if (carLifeListener != null) {
+                cl.removeListener(carLifeListener);
+            }
+            carLifeListener = new CarLifeLocalReceiver.Listener() {
+                @Override
+                public void onStateChanged(CarLifeLocalReceiver.State state, String detail) {
+                    runOnUiThread(() -> updateIphoneUi());
+                }
+
+                @Override
+                public void onVideoFrame(long frameCount, int width, int height) {
+                    runOnUiThread(() -> updateIphoneUi());
+                }
+            };
+            cl.addListener(carLifeListener);
+        }
+
         updateClusterUi();
+        updateIphoneUi();
         AutoConnectManager.getInstance(this).evaluateOnAppLaunch();
     }
 
@@ -641,6 +789,9 @@ public class MainActivity extends Activity {
         }
         if (bridgeService != null && bridgeService.getClusterServer() != null && uiClusterListener != null) {
             bridgeService.getClusterServer().removeListener(uiClusterListener);
+        }
+        if (bridgeService != null && bridgeService.getCarLifeReceiver() != null && carLifeListener != null) {
+            bridgeService.getCarLifeReceiver().removeListener(carLifeListener);
         }
         if (isBound) {
             unbindService(serviceConnection);

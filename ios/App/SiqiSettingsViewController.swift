@@ -11,6 +11,8 @@ protocol SiqiSettingsDelegate: AnyObject {
     var selectedVideoMode: SiqiVideoMode { get set }
     var selectedAppearance: ReceiverConfiguration.Appearance { get set }
     var isKeepAliveEnabled: Bool { get set }
+    var isAutoStartOnWiFiEnabled: Bool { get set }
+    var isAutoStopOnWiFiLeaveEnabled: Bool { get set }
     var currentLogLines: [String] { get }
     var lastControllerActionText: String? { get }
 
@@ -18,6 +20,7 @@ protocol SiqiSettingsDelegate: AnyObject {
     func forceClusterKeyframe()
     func triggerSimulatedKey(_ action: SiqiKeyAction)
     func showGuideSheet(from presenter: UIViewController)
+    func didUpdateWiFiPresets()
 }
 
 /// Unified settings screen mirroring Android 摩投 SettingsActivity:
@@ -42,6 +45,10 @@ final class SiqiSettingsViewController: UIViewController {
     private let applyHintLabel = SiqiStyle.makeSecondaryLabel("", size: 12)
 
     // Connection & background controls
+    private let wifiPresetManageButton = SiqiButton(title: "仪表 Wi-Fi 预设管理  ›", variant: .secondary, fontSize: 13, height: 44)
+    private let wifiPresetSummaryLabel = SiqiStyle.makeSecondaryLabel("", size: 12)
+    private let autoStartSwitch = UISwitch()
+    private let autoStopSwitch = UISwitch()
     private let keepAliveSwitch = UISwitch()
 
     // Audio controls
@@ -204,7 +211,36 @@ final class SiqiSettingsViewController: UIViewController {
     private func buildConnectionCard() -> SiqiCardView {
         let card = SiqiCardView()
         card.stack.spacing = 12
-        card.stack.addArrangedSubview(SiqiStyle.makeKicker("连接与后台模式"))
+        card.stack.addArrangedSubview(SiqiStyle.makeKicker("连接与自动化模式"))
+
+        wifiPresetManageButton.contentHorizontalAlignment = .fill
+        wifiPresetManageButton.addAction(UIAction { [weak self] _ in
+            self?.openWiFiPresetsManager()
+        }, for: .touchUpInside)
+        card.stack.addArrangedSubview(wifiPresetManageButton)
+        card.stack.addArrangedSubview(wifiPresetSummaryLabel)
+
+        SiqiStyle.styleSwitch(autoStartSwitch)
+        autoStartSwitch.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            self.delegate?.isAutoStartOnWiFiEnabled = self.autoStartSwitch.isOn
+        }, for: .valueChanged)
+        card.stack.addArrangedSubview(makeSwitchRow(
+            title: "检测到仪表 Wi-Fi 自动启动 CarPlay",
+            subtitle: "App 处于前台（或通过 iPhone 快捷指令 motou://start 拉起）且已连上有效仪表 Wi-Fi 时自动启动无线 CarPlay。",
+            toggle: autoStartSwitch
+        ))
+
+        SiqiStyle.styleSwitch(autoStopSwitch)
+        autoStopSwitch.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            self.delegate?.isAutoStopOnWiFiLeaveEnabled = self.autoStopSwitch.isOn
+        }, for: .valueChanged)
+        card.stack.addArrangedSubview(makeSwitchRow(
+            title: "离开仪表 Wi-Fi 满 3 分钟自动停止",
+            subtitle: "骑完熄火下车后，若断开仪表 Wi-Fi 超过 3 分钟未恢复，自动停止 CarPlay 并释放后台保活。",
+            toggle: autoStopSwitch
+        ))
 
         SiqiStyle.styleSwitch(keepAliveSwitch)
         keepAliveSwitch.addAction(UIAction { [weak self] _ in
@@ -374,6 +410,20 @@ final class SiqiSettingsViewController: UIViewController {
         applyHintLabel.textColor = SiqiStyle.textSecondary
 
         keepAliveSwitch.isOn = d.isKeepAliveEnabled
+        autoStartSwitch.isOn = d.isAutoStartOnWiFiEnabled
+        autoStopSwitch.isOn = d.isAutoStopOnWiFiLeaveEnabled
+
+        let store = SiqiWiFiPresetStore.shared
+        store.reload()
+        if let active = store.selectedPreset, !active.ssid.isEmpty {
+            wifiPresetManageButton.setTitle("当前 Wi-Fi 预设：\(active.name)（共 \(store.presets.count) 个）  ›", for: .normal)
+            wifiPresetSummaryLabel.text = "热点 \(active.ssid) · \(active.passwordSummary) · 信道 \(active.wifiChannel)"
+            wifiPresetSummaryLabel.textColor = SiqiWiFiPresetStore.containsSpace(active.ssid) ? SiqiStyle.warning : SiqiStyle.textSecondary
+        } else {
+            wifiPresetManageButton.setTitle("仪表 Wi-Fi 预设管理（当前 \(store.presets.count) 个）  ›", for: .normal)
+            wifiPresetSummaryLabel.text = "可保存多台车辆的热点名称、密码与信道，切换骑行车辆免重输。"
+            wifiPresetSummaryLabel.textColor = SiqiStyle.textSecondary
+        }
 
         if let lastKey = d.lastControllerActionText {
             settingsKeyLogLabel.text = lastKey
@@ -406,6 +456,14 @@ final class SiqiSettingsViewController: UIViewController {
         guard let d = delegate else { return }
         let vc = SiqiBikePresetPickerViewController(selected: d.selectedBikePreset) { [weak self] chosen in
             self?.delegate?.selectedBikePreset = chosen
+            self?.refreshState()
+        }
+        navigationController?.pushViewController(vc, animated: true)
+    }
+
+    private func openWiFiPresetsManager() {
+        let vc = SiqiWiFiPresetsViewController { [weak self] in
+            self?.delegate?.didUpdateWiFiPresets()
             self?.refreshState()
         }
         navigationController?.pushViewController(vc, animated: true)
@@ -982,5 +1040,435 @@ final class SiqiLogViewController: UIViewController {
         if !textView.text.isEmpty {
             textView.scrollRangeToVisible(NSRange(location: textView.text.utf16.count - 1, length: 1))
         }
+    }
+}
+
+/// 多仪表 Wi-Fi 预设管理页（支持添加、编辑、删除、切换、一键去除空格与选择兼容信道）。
+final class SiqiWiFiPresetsViewController: UIViewController {
+    private let onChanged: () -> Void
+    private let scrollView = UIScrollView()
+    private let stack = UIStackView()
+    private let listStack = UIStackView()
+
+    init(onChanged: @escaping () -> Void) {
+        self.onChanged = onChanged
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = SiqiStyle.windowBackground
+        buildLayout()
+        reloadList()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(true, animated: false)
+        reloadList()
+    }
+
+    private func buildLayout() {
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.alwaysBounceVertical = true
+        view.addSubview(scrollView)
+
+        stack.axis = .vertical
+        stack.spacing = 14
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+
+            stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 16),
+            stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -28),
+            stack.leadingAnchor.constraint(equalTo: scrollView.frameLayoutGuide.leadingAnchor, constant: 18),
+            stack.trailingAnchor.constraint(equalTo: scrollView.frameLayoutGuide.trailingAnchor, constant: -18)
+        ])
+
+        let backBtn = SiqiButton(title: "‹ 返回", variant: .secondary, fontSize: 14, height: 40)
+        backBtn.setContentHuggingPriority(.required, for: .horizontal)
+        backBtn.addAction(UIAction { [weak self] _ in
+            self?.navigationController?.popViewController(animated: true)
+        }, for: .touchUpInside)
+
+        let titleLabel = UILabel()
+        titleLabel.text = "仪表 Wi-Fi 预设"
+        titleLabel.font = .systemFont(ofSize: 21, weight: .bold)
+        titleLabel.textColor = SiqiStyle.textPrimary
+
+        let addBtn = SiqiButton(title: "+ 新增", variant: .primary, fontSize: 13, height: 40)
+        addBtn.setContentHuggingPriority(.required, for: .horizontal)
+        addBtn.addAction(UIAction { [weak self] _ in
+            self?.openEditor(preset: nil)
+        }, for: .touchUpInside)
+
+        let bar = UIStackView(arrangedSubviews: [backBtn, titleLabel, UIView(), addBtn])
+        bar.spacing = 12
+        bar.alignment = .center
+        stack.addArrangedSubview(bar)
+
+        let tipCard = SiqiCardView()
+        tipCard.stack.spacing = 6
+        tipCard.stack.addArrangedSubview(SiqiStyle.makeKicker("使用说明"))
+        tipCard.stack.addArrangedSubview(SiqiStyle.makeSecondaryLabel(
+            "可为不同摩托车或不同骑行场景保存多组仪表 Wi-Fi 热点（名称、密码、开放网络开关及信道）。点选任意预设即可立即切换为首页当前激活热点。",
+            size: 12
+        ))
+        stack.addArrangedSubview(tipCard)
+
+        listStack.axis = .vertical
+        listStack.spacing = 12
+        stack.addArrangedSubview(listStack)
+    }
+
+    private func reloadList() {
+        listStack.arrangedSubviews.forEach {
+            listStack.removeArrangedSubview($0)
+            $0.removeFromSuperview()
+        }
+
+        let store = SiqiWiFiPresetStore.shared
+        store.reload()
+        let selectedID = store.selectedPreset?.id
+
+        if store.presets.isEmpty {
+            let emptyCard = SiqiCardView()
+            emptyCard.stack.spacing = 10
+            emptyCard.stack.addArrangedSubview(SiqiStyle.makeSectionTitle("暂无已保存的仪表 Wi-Fi 预设"))
+            emptyCard.stack.addArrangedSubview(SiqiStyle.makeSecondaryLabel(
+                "点击下方按钮添加您的仪表 Wi-Fi（密码通常为 12345678，注意名称不要含空格）。",
+                size: 13
+            ))
+            let createBtn = SiqiButton(title: "+ 添加第一条仪表 Wi-Fi 预设", variant: .primary, fontSize: 14, height: 44)
+            createBtn.addAction(UIAction { [weak self] _ in
+                self?.openEditor(preset: nil)
+            }, for: .touchUpInside)
+            emptyCard.stack.addArrangedSubview(createBtn)
+            listStack.addArrangedSubview(emptyCard)
+            return
+        }
+
+        for preset in store.presets {
+            let isSelected = preset.id == selectedID
+            let card = SiqiCardView()
+            card.stack.spacing = 8
+            if isSelected {
+                card.layer.borderColor = SiqiStyle.accent.cgColor
+                card.layer.borderWidth = 1.5
+            }
+
+            let title = UILabel()
+            title.text = (isSelected ? "✓ " : "") + preset.name
+            title.font = .systemFont(ofSize: 16, weight: .bold)
+            title.textColor = isSelected ? SiqiStyle.accent : SiqiStyle.textPrimary
+
+            let badge = SiqiChipView()
+            badge.apply(text: isSelected ? "当前启用" : "点击切换", color: isSelected ? SiqiStyle.success : SiqiStyle.textSecondary)
+
+            let header = UIStackView(arrangedSubviews: [title, UIView(), badge])
+            header.alignment = .center
+            card.stack.addArrangedSubview(header)
+
+            let ssidText = preset.ssid.isEmpty ? "（未填写 Wi-Fi 名称）" : preset.ssid
+            let detail = SiqiStyle.makeSecondaryLabel(
+                "Wi-Fi：\(ssidText) · \(preset.passwordSummary) · 信道 \(preset.wifiChannel)",
+                size: 13
+            )
+            card.stack.addArrangedSubview(detail)
+
+            if SiqiWiFiPresetStore.containsSpace(preset.ssid) {
+                let warn = SiqiStyle.makeSecondaryLabel("⚠️ 该热点名称包含空格，可能导致 iAP2 无法收到控制连接。", size: 12)
+                warn.textColor = SiqiStyle.warning
+                card.stack.addArrangedSubview(warn)
+            }
+
+            let selectBtn = SiqiButton(
+                title: isSelected ? "已启用" : "设为当前热点",
+                variant: .segmented(selected: isSelected),
+                fontSize: 12,
+                height: 36
+            )
+            selectBtn.addAction(UIAction { [weak self] _ in
+                SiqiWiFiPresetStore.shared.select(id: preset.id)
+                self?.onChanged()
+                self?.reloadList()
+            }, for: .touchUpInside)
+
+            let editBtn = SiqiButton(title: "编辑", variant: .secondary, fontSize: 12, height: 36)
+            editBtn.addAction(UIAction { [weak self] _ in
+                self?.openEditor(preset: preset)
+            }, for: .touchUpInside)
+
+            let deleteBtn = SiqiButton(title: "删除", variant: .danger, fontSize: 12, height: 36)
+            deleteBtn.addAction(UIAction { [weak self] _ in
+                self?.confirmDelete(preset)
+            }, for: .touchUpInside)
+
+            let row = UIStackView(arrangedSubviews: [selectBtn, editBtn, deleteBtn])
+            row.axis = .horizontal
+            row.distribution = .fillEqually
+            row.spacing = 8
+            card.stack.addArrangedSubview(row)
+
+            listStack.addArrangedSubview(card)
+        }
+    }
+
+    private func confirmDelete(_ preset: SiqiWiFiPreset) {
+        let alert = UIAlertController(
+            title: "删除预设「\(preset.name)」？",
+            message: "热点名称：\(preset.ssid)",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "删除", style: .destructive) { [weak self] _ in
+            SiqiWiFiPresetStore.shared.delete(id: preset.id)
+            self?.onChanged()
+            self?.reloadList()
+        })
+        present(alert, animated: true)
+    }
+
+    private func openEditor(preset: SiqiWiFiPreset?) {
+        let vc = SiqiWiFiPresetEditorViewController(initialPreset: preset) { [weak self] saved in
+            SiqiWiFiPresetStore.shared.upsert(saved, selectAfterSave: true)
+            self?.onChanged()
+            self?.reloadList()
+        }
+        navigationController?.pushViewController(vc, animated: true)
+    }
+}
+
+/// 新建或编辑单条仪表 Wi-Fi 预设表单页。
+final class SiqiWiFiPresetEditorViewController: UIViewController {
+    private let existingID: UUID?
+    private let onSave: (SiqiWiFiPreset) -> Void
+
+    private let nameField = UITextField()
+    private let ssidField = UITextField()
+    private let passwordField = UITextField()
+    private let openSwitch = UISwitch()
+    private let spaceWarningLabel = SiqiStyle.makeSecondaryLabel("⚠️ 检测到 Wi-Fi 名称含空格，建议清除", size: 12)
+    private let cleanSpaceButton = SiqiButton(title: "一键去空格", variant: .secondary, fontSize: 11, height: 28)
+    private let spaceWarningRow = UIStackView()
+    private var selectedChannel: UInt8
+    private var channelButtons: [SiqiButton] = []
+
+    init(initialPreset: SiqiWiFiPreset?, onSave: @escaping (SiqiWiFiPreset) -> Void) {
+        self.existingID = initialPreset?.id
+        self.selectedChannel = initialPreset?.wifiChannel ?? 36
+        self.onSave = onSave
+        super.init(nibName: nil, bundle: nil)
+
+        nameField.text = initialPreset?.name ?? ""
+        ssidField.text = initialPreset?.ssid ?? ""
+        passwordField.text = initialPreset?.isOpenNetwork == true
+            ? ""
+            : (initialPreset?.password ?? SiqiWiFiPreset.defaultPassword)
+        openSwitch.isOn = initialPreset?.isOpenNetwork ?? false
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = SiqiStyle.windowBackground
+        buildLayout()
+        refreshControls()
+    }
+
+    private func buildLayout() {
+        let scroll = UIScrollView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.alwaysBounceVertical = true
+        scroll.keyboardDismissMode = .interactive
+        view.addSubview(scroll)
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 14
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        scroll.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            scroll.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+
+            stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 16),
+            stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -28),
+            stack.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor, constant: 18),
+            stack.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor, constant: -18)
+        ])
+
+        let backBtn = SiqiButton(title: "‹ 取消", variant: .secondary, fontSize: 14, height: 40)
+        backBtn.setContentHuggingPriority(.required, for: .horizontal)
+        backBtn.addAction(UIAction { [weak self] _ in
+            self?.navigationController?.popViewController(animated: true)
+        }, for: .touchUpInside)
+
+        let titleLabel = UILabel()
+        titleLabel.text = existingID == nil ? "新增 Wi-Fi 预设" : "编辑 Wi-Fi 预设"
+        titleLabel.font = .systemFont(ofSize: 20, weight: .bold)
+        titleLabel.textColor = SiqiStyle.textPrimary
+
+        let bar = UIStackView(arrangedSubviews: [backBtn, titleLabel, UIView()])
+        bar.spacing = 12
+        bar.alignment = .center
+        stack.addArrangedSubview(bar)
+
+        let card = SiqiCardView()
+        card.stack.spacing = 10
+        card.stack.addArrangedSubview(SiqiStyle.makeKicker("热点凭证"))
+
+        card.stack.addArrangedSubview(SiqiStyle.makeSectionTitle("预设备注名"))
+        styleField(nameField, placeholder: "例如 凯越 450RR（不填自动用热点名）")
+        card.stack.addArrangedSubview(nameField)
+
+        card.stack.addArrangedSubview(SiqiStyle.makeSectionTitle("仪表 Wi-Fi 名称 (SSID)"))
+        styleField(ssidField, placeholder: "例如 CQKY_xxxx（注意无空格）")
+        ssidField.addAction(UIAction { [weak self] _ in
+            self?.refreshSpaceWarning()
+        }, for: .editingChanged)
+        card.stack.addArrangedSubview(ssidField)
+
+        spaceWarningLabel.textColor = SiqiStyle.warning
+        cleanSpaceButton.setContentHuggingPriority(.required, for: .horizontal)
+        cleanSpaceButton.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            self.ssidField.text = SiqiWiFiPresetStore.removingSpaces(self.ssidField.text ?? "")
+            self.refreshSpaceWarning()
+        }, for: .touchUpInside)
+        spaceWarningRow.axis = .horizontal
+        spaceWarningRow.alignment = .center
+        spaceWarningRow.spacing = 8
+        spaceWarningRow.addArrangedSubview(spaceWarningLabel)
+        spaceWarningRow.addArrangedSubview(cleanSpaceButton)
+        card.stack.addArrangedSubview(spaceWarningRow)
+
+        SiqiStyle.styleSwitch(openSwitch)
+        openSwitch.addAction(UIAction { [weak self] _ in
+            self?.refreshControls()
+        }, for: .valueChanged)
+        let openTitle = SiqiStyle.makeSectionTitle("开放热点（无密码）")
+        let openRow = UIStackView(arrangedSubviews: [openTitle, UIView(), openSwitch])
+        openRow.alignment = .center
+        card.stack.addArrangedSubview(openRow)
+
+        card.stack.addArrangedSubview(SiqiStyle.makeSectionTitle("Wi-Fi 密码（思骑默认 12345678）"))
+        styleField(passwordField, placeholder: "默认 12345678（8-63位）")
+        card.stack.addArrangedSubview(passwordField)
+
+        card.stack.addArrangedSubview(SiqiStyle.makeSectionTitle("iAP2 兼容 Wi-Fi 信道（一般保持 36）"))
+        channelButtons = SiqiWiFiPreset.supportedChannels.map { channel in
+            let btn = SiqiButton(title: "\(channel)", variant: .segmented(selected: channel == selectedChannel), fontSize: 12, height: 36)
+            btn.addAction(UIAction { [weak self] _ in
+                self?.selectedChannel = channel
+                self?.refreshControls()
+            }, for: .touchUpInside)
+            return btn
+        }
+        let chRow = UIStackView(arrangedSubviews: channelButtons)
+        chRow.axis = .horizontal
+        chRow.distribution = .fillEqually
+        chRow.spacing = 6
+        card.stack.addArrangedSubview(chRow)
+
+        stack.addArrangedSubview(card)
+
+        let saveBtn = SiqiButton(title: "保存并启用该 Wi-Fi 预设", variant: .primary, fontSize: 15, height: 48)
+        saveBtn.addAction(UIAction { [weak self] _ in
+            self?.savePressed()
+        }, for: .touchUpInside)
+        stack.addArrangedSubview(saveBtn)
+    }
+
+    private func styleField(_ field: UITextField, placeholder: String) {
+        field.placeholder = placeholder
+        field.autocorrectionType = .no
+        field.autocapitalizationType = .none
+        field.clearButtonMode = .whileEditing
+        field.textColor = SiqiStyle.textPrimary
+        field.font = .systemFont(ofSize: 14)
+        field.backgroundColor = SiqiStyle.button.withAlphaComponent(0.75)
+        field.layer.cornerRadius = 10
+        field.layer.cornerCurve = .continuous
+        field.layer.borderWidth = 1
+        field.layer.borderColor = SiqiStyle.outline.cgColor
+        field.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 40))
+        field.leftViewMode = .always
+        field.heightAnchor.constraint(equalToConstant: 42).isActive = true
+        field.returnKeyType = .done
+        field.addTarget(field, action: #selector(UIResponder.resignFirstResponder), for: .editingDidEndOnExit)
+    }
+
+    private func refreshSpaceWarning() {
+        spaceWarningRow.isHidden = !SiqiWiFiPresetStore.containsSpace(ssidField.text ?? "")
+    }
+
+    private func refreshControls() {
+        refreshSpaceWarning()
+        passwordField.isEnabled = !openSwitch.isOn
+        passwordField.alpha = openSwitch.isOn ? 0.5 : 1.0
+        for (idx, channel) in SiqiWiFiPreset.supportedChannels.enumerated() where idx < channelButtons.count {
+            channelButtons[idx].apply(variant: .segmented(selected: channel == selectedChannel))
+        }
+    }
+
+    private func savePressed() {
+        view.endEditing(true)
+        let rawSSID = ssidField.text ?? ""
+        let trimmedSSID = rawSSID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSSID.isEmpty else {
+            let alert = UIAlertController(title: "请填写 Wi-Fi 名称", message: "思骑仪表热点名不能为空。", preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "确定", style: .default))
+            present(alert, animated: true)
+            return
+        }
+        if SiqiWiFiPresetStore.containsSpace(rawSSID) {
+            let cleaned = SiqiWiFiPresetStore.removingSpaces(rawSSID)
+            let alert = UIAlertController(
+                title: "检测到热点名称含空格",
+                message: "是否将「\(trimmedSSID)」自动清理为「\(cleaned)」后保存？",
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "去空格保存（推荐）", style: .default) { [weak self] _ in
+                self?.commitSave(ssid: cleaned)
+            })
+            alert.addAction(UIAlertAction(title: "保留原样", style: .default) { [weak self] _ in
+                self?.commitSave(ssid: trimmedSSID)
+            })
+            present(alert, animated: true)
+            return
+        }
+        commitSave(ssid: trimmedSSID)
+    }
+
+    private func commitSave(ssid: String) {
+        let pwd = (passwordField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !openSwitch.isOn && !pwd.isEmpty && !(8...63).contains(pwd.utf8.count) {
+            let alert = UIAlertController(title: "密码长度无效", message: "WPA2 Wi-Fi 密码需为 8–63 位，开放网络请打开上方开关。", preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "确定", style: .default))
+            present(alert, animated: true)
+            return
+        }
+        let preset = SiqiWiFiPreset(
+            id: existingID ?? UUID(),
+            name: nameField.text ?? "",
+            ssid: ssid,
+            password: openSwitch.isOn ? "" : (pwd.isEmpty ? SiqiWiFiPreset.defaultPassword : pwd),
+            isOpenNetwork: openSwitch.isOn,
+            wifiChannel: selectedChannel
+        )
+        onSave(preset)
+        navigationController?.popViewController(animated: true)
     }
 }
