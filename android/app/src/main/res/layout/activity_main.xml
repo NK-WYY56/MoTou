@@ -254,6 +254,119 @@
                     android:textSize="13sp"
                     android:textStyle="bold" />
             </LinearLayout>
+
+            <!-- Inline Touchable CarLife Preview + Quick Navigation Keys -->
+            <LinearLayout
+                android:id="@+id/layout_carlife_inline_preview"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:layout_marginTop="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="6dp">
+
+                    <TextView
+                        android:id="@+id/tv_carlife_preview_hint"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="可触控预览小屏 · 点按/拖动直控 CarLife"
+                        android:textSize="12sp" />
+
+                    <Button
+                        android:id="@+id/btn_carlife_open_fullscreen"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:minWidth="0dp"
+                        android:paddingHorizontal="10dp"
+                        android:text="全屏触控 ⤢"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <FrameLayout
+                    android:id="@+id/container_carlife_preview"
+                    android:layout_width="match_parent"
+                    android:layout_height="170dp"
+                    android:background="#000000">
+
+                    <TextureView
+                        android:id="@+id/texture_carlife_inline"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent" />
+
+                    <TextView
+                        android:id="@+id/tv_carlife_preview_placeholder"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:gravity="center"
+                        android:text="等待 CarLife 视频首帧…"
+                        android:textColor="#9AA6BC"
+                        android:textSize="13sp" />
+                </FrameLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="8dp">
+
+                    <Button
+                        android:id="@+id/btn_carlife_home"
+                        android:layout_width="0dp"
+                        android:layout_height="36dp"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="3dp"
+                        android:maxLines="1"
+                        android:text="⌂ 主页"
+                        android:textSize="11sp" />
+
+                    <Button
+                        android:id="@+id/btn_carlife_back"
+                        android:layout_width="0dp"
+                        android:layout_height="36dp"
+                        android:layout_weight="1"
+                        android:layout_marginHorizontal="3dp"
+                        android:maxLines="1"
+                        android:text="↩ 返回"
+                        android:textSize="11sp" />
+
+                    <Button
+                        android:id="@+id/btn_carlife_voice"
+                        android:layout_width="0dp"
+                        android:layout_height="36dp"
+                        android:layout_weight="1"
+                        android:layout_marginHorizontal="3dp"
+                        android:maxLines="1"
+                        android:text="🎙 语音"
+                        android:textSize="11sp" />
+
+                    <Button
+                        android:id="@+id/btn_carlife_refresh"
+                        android:layout_width="0dp"
+                        android:layout_height="36dp"
+                        android:layout_weight="1"
+                        android:layout_marginStart="3dp"
+                        android:maxLines="1"
+                        android:text="⟳ 刷新"
+                        android:textSize="11sp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btn_carlife_guide"
+                android:layout_width="match_parent"
+                android:layout_height="38dp"
+                android:layout_marginTop="10dp"
+                android:visibility="gone"
+                android:text="本机 CarLife 与蓝牙设备选择说明"
+                android:textSize="12sp" />
         </LinearLayout>
 
         <!-- STEP 3: BLUETOOTH HANDLEBAR KEY CONTROLLER -->

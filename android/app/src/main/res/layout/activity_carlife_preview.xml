@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/carlife_preview_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000"
+    android:keepScreenOn="true">
+
+    <TextureView
+        android:id="@+id/texture_carlife_fullscreen"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center" />
+
+    <TextView
+        android:id="@+id/tv_carlife_fullscreen_empty"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:padding="24dp"
+        android:text="等待本机 CarLife+ 视频画面...\n确认已启动「百度 CarLife+」并建立本地连接"
+        android:textColor="#D0D8E8"
+        android:textSize="15sp"
+        android:lineSpacingMultiplier="1.3" />
+
+    <!-- Top Floating Touchable Toolbar -->
+    <LinearLayout
+        android:id="@+id/bar_carlife_fullscreen_controls"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="14dp"
+        android:layout_marginTop="14dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="10dp"
+        android:paddingVertical="6dp"
+        android:background="#88101724">
+
+        <Button
+            android:id="@+id/btn_fs_exit"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:minWidth="0dp"
+            android:paddingHorizontal="12dp"
+            android:text="✕ 退出"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:backgroundTint="#33FFFFFF" />
+
+        <Button
+            android:id="@+id/btn_fs_home"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:minWidth="0dp"
+            android:layout_marginStart="6dp"
+            android:paddingHorizontal="12dp"
+            android:text="⌂ 主页"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:backgroundTint="#33FFFFFF" />
+
+        <Button
+            android:id="@+id/btn_fs_back"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:minWidth="0dp"
+            android:layout_marginStart="6dp"
+            android:paddingHorizontal="12dp"
+            android:text="↩ 返回"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:backgroundTint="#33FFFFFF" />
+
+        <Button
+            android:id="@+id/btn_fs_voice"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:minWidth="0dp"
+            android:layout_marginStart="6dp"
+            android:paddingHorizontal="12dp"
+            android:text="🎙 语音"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:backgroundTint="#33FFFFFF" />
+
+        <Button
+            android:id="@+id/btn_fs_refresh"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:minWidth="0dp"
+            android:layout_marginStart="6dp"
+            android:paddingHorizontal="12dp"
+            android:text="⟳ 刷新"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:backgroundTint="#33FFFFFF" />
+    </LinearLayout>
+
+</FrameLayout>

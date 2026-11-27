@@ -16,7 +16,8 @@ import java.util.List;
  * and rendering directly onto the VirtualDisplay TextureView Surface.
  */
 public class CarLifeVideoDecoder {
-    private static final String TAG = "CarLifeVideoDecoder";
+    private static final String BASE_TAG = "CarLifeVideoDecoder";
+    private final String tag;
 
     public interface Callback {
         void onFirstFrameRendered(int width, int height);
@@ -36,6 +37,14 @@ public class CarLifeVideoDecoder {
     private byte[] cachedPps;
     private boolean firstRendered = false;
     private long decodedCount = 0;
+
+    public CarLifeVideoDecoder() {
+        this("main");
+    }
+
+    public CarLifeVideoDecoder(String role) {
+        this.tag = BASE_TAG + "[" + (role == null ? "main" : role) + "]";
+    }
 
     public void setCallback(Callback callback) {
         this.callback = callback;
@@ -57,10 +66,10 @@ public class CarLifeVideoDecoder {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     try {
                         decoder.setOutputSurface(surface);
-                        Log.i(TAG, "Switched CarLife decoder output Surface cleanly");
+                        Log.i(tag, "Switched CarLife decoder output Surface cleanly");
                         return;
                     } catch (Exception e) {
-                        Log.w(TAG, "setOutputSurface failed, recreating decoder: " + e.getMessage());
+                        Log.w(tag, "setOutputSurface failed, recreating decoder: " + e.getMessage());
                     }
                 }
                 releaseCodecLocked();
@@ -69,6 +78,29 @@ public class CarLifeVideoDecoder {
                 initCodecLocked(cachedSps, cachedPps);
             }
         }
+    }
+
+    public Surface getOutputSurface() {
+        synchronized (lock) {
+            return outputSurface;
+        }
+    }
+
+    /**
+     * Immediately warms up this decoder with the session's latest SPS/PPS and IDR frame so
+     * newly attached preview surfaces display a frame without waiting for the next GOP.
+     */
+    public void bootstrapWithCachedFrame(byte[] sps, byte[] pps, byte[] idrFrame) {
+        if (sps == null || pps == null || idrFrame == null || idrFrame.length == 0) return;
+        synchronized (lock) {
+            if (outputSurface == null || !outputSurface.isValid()) return;
+            cachedSps = sps;
+            cachedPps = pps;
+            if (decoder == null) {
+                initCodecLocked(sps, pps);
+            }
+        }
+        feedAnnexB(idrFrame);
     }
 
     public void feedAnnexB(byte[] annexB) {
@@ -126,7 +158,7 @@ public class CarLifeVideoDecoder {
                     }
                 }
             } catch (Exception e) {
-                Log.w(TAG, "feedAnnexB decode error, resetting decoder: " + e.getMessage());
+                Log.w(tag, "feedAnnexB decode error, resetting decoder: " + e.getMessage());
                 releaseCodecLocked();
             }
         }
@@ -155,9 +187,9 @@ public class CarLifeVideoDecoder {
             decoder = codec;
             running = true;
             startOutputLoop(codec);
-            Log.i(TAG, "CarLife AVC decoder started (" + width + "x" + height + ")");
+            Log.i(tag, "CarLife AVC decoder started (" + width + "x" + height + ")");
         } catch (Exception e) {
-            Log.e(TAG, "Failed to init CarLife AVC decoder: " + e.getMessage(), e);
+            Log.e(tag, "Failed to init CarLife AVC decoder: " + e.getMessage(), e);
             releaseCodecLocked();
         }
     }
@@ -187,7 +219,7 @@ public class CarLifeVideoDecoder {
                 } catch (IllegalStateException e) {
                     break;
                 } catch (Exception e) {
-                    if (running) Log.w(TAG, "Decoder drain notice: " + e.getMessage());
+                    if (running) Log.w(tag, "Decoder drain notice: " + e.getMessage());
                 }
             }
         }, "CarLifeDecoderDrain");

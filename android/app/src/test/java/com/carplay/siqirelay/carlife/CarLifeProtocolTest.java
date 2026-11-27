@@ -77,4 +77,40 @@ public class CarLifeProtocolTest {
         };
         CarLifeProtocol.readMessage(new ByteArrayInputStream(badHeader), CarLifeProtocol.CH_VIDEO);
     }
+
+    @Test
+    public void roundTripTouchAndHardKeyMessages() throws Exception {
+        byte[] touchPayload = new CarLifeProtocol.ProtoWriter()
+                .writeInt(1, 5)   // ACTION_POINTER_DOWN
+                .writeInt(2, 640) // x0
+                .writeInt(3, 280) // y0
+                .writeInt(4, 800) // x1
+                .writeInt(5, 320) // y1
+                .toByteArray();
+        byte[] touchWire = CarLifeProtocol.encodeMessage(
+                CarLifeProtocol.CH_TOUCH, CarLifeProtocol.MSG_TOUCH_ACTION, touchPayload);
+        assertEquals(8 + touchPayload.length, touchWire.length);
+
+        CarLifeProtocol.Message decodedTouch = CarLifeProtocol.readMessage(
+                new ByteArrayInputStream(touchWire), CarLifeProtocol.CH_TOUCH);
+        assertNotNull(decodedTouch);
+        assertEquals(CarLifeProtocol.MSG_TOUCH_ACTION, decodedTouch.id);
+        CarLifeProtocol.ProtoReader tr = CarLifeProtocol.ProtoReader.parse(decodedTouch.payload);
+        assertEquals(5, tr.getInt(1, -1));
+        assertEquals(640, tr.getInt(2, -1));
+        assertEquals(280, tr.getInt(3, -1));
+        assertEquals(800, tr.getInt(4, -1));
+        assertEquals(320, tr.getInt(5, -1));
+
+        for (int code : new int[]{3, 4, 231}) {
+            byte[] keyPayload = new CarLifeProtocol.ProtoWriter().writeInt(1, code).toByteArray();
+            byte[] keyWire = CarLifeProtocol.encodeMessage(
+                    CarLifeProtocol.CH_TOUCH, CarLifeProtocol.MSG_TOUCH_CAR_HARD_KEY_CODE, keyPayload);
+            CarLifeProtocol.Message decodedKey = CarLifeProtocol.readMessage(
+                    new ByteArrayInputStream(keyWire), CarLifeProtocol.CH_TOUCH);
+            assertNotNull(decodedKey);
+            assertEquals(CarLifeProtocol.MSG_TOUCH_CAR_HARD_KEY_CODE, decodedKey.id);
+            assertEquals(code, CarLifeProtocol.ProtoReader.parse(decodedKey.payload).getInt(1, -1));
+        }
+    }
 }

@@ -1,6 +1,7 @@
 package com.carplay.siqirelay;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.KeyguardManager;
@@ -10,6 +11,7 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
+import android.graphics.SurfaceTexture;
 import android.hardware.input.InputManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -19,9 +21,15 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
+import android.view.Surface;
+import android.view.TextureView;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -72,6 +80,19 @@ public class MainActivity extends Activity {
     private Button btnEnterCarplay;
     private Button btnPairController;
     private Button btnEnableGlobalKeys;
+
+    private LinearLayout layoutCarlifeInlinePreview;
+    private FrameLayout containerCarlifePreview;
+    private TextureView textureCarlifeInline;
+    private TextView tvCarlifePreviewHint;
+    private TextView tvCarlifePreviewPlaceholder;
+    private Button btnCarlifeOpenFullscreen;
+    private Button btnCarlifeHome;
+    private Button btnCarlifeBack;
+    private Button btnCarlifeVoice;
+    private Button btnCarlifeRefresh;
+    private Button btnCarlifeGuide;
+    private Surface inlinePreviewSurface;
 
     private KoveClusterServer.ClusterStateListener uiClusterListener;
     private CarLifeLocalReceiver.Listener carLifeListener;
@@ -225,6 +246,7 @@ public class MainActivity extends Activity {
         if (inputManager != null) {
             inputManager.registerInputDeviceListener(inputDeviceListener, uiHandler);
         }
+        reattachInlineCarLifePreviewIfReady();
         refreshAllUi();
         if (bridgeService != null) {
             AutoConnectManager.getInstance(this).evaluateOnAppLaunch();
@@ -238,6 +260,7 @@ public class MainActivity extends Activity {
         if (inputManager != null) {
             inputManager.unregisterInputDeviceListener(inputDeviceListener);
         }
+        releaseInlinePreviewSurface();
     }
 
     private void initViews() {
@@ -257,6 +280,18 @@ public class MainActivity extends Activity {
         btnStartVirtualCarplay = findViewById(R.id.btn_start_virtual_carplay);
         btnOpenDiplaySetup = findViewById(R.id.btn_open_diplay_setup);
         btnEnterCarplay = findViewById(R.id.btn_enter_carplay);
+
+        layoutCarlifeInlinePreview = findViewById(R.id.layout_carlife_inline_preview);
+        containerCarlifePreview = findViewById(R.id.container_carlife_preview);
+        textureCarlifeInline = findViewById(R.id.texture_carlife_inline);
+        tvCarlifePreviewHint = findViewById(R.id.tv_carlife_preview_hint);
+        tvCarlifePreviewPlaceholder = findViewById(R.id.tv_carlife_preview_placeholder);
+        btnCarlifeOpenFullscreen = findViewById(R.id.btn_carlife_open_fullscreen);
+        btnCarlifeHome = findViewById(R.id.btn_carlife_home);
+        btnCarlifeBack = findViewById(R.id.btn_carlife_back);
+        btnCarlifeVoice = findViewById(R.id.btn_carlife_voice);
+        btnCarlifeRefresh = findViewById(R.id.btn_carlife_refresh);
+        btnCarlifeGuide = findViewById(R.id.btn_carlife_guide);
 
         tvControllerName = findViewById(R.id.tv_controller_name);
         tvControllerBadge = findViewById(R.id.tv_controller_badge);
@@ -284,6 +319,15 @@ public class MainActivity extends Activity {
         DiPlayStyle.stylePrimaryButton(btnStartVirtualCarplay, palette);
         DiPlayStyle.styleSecondaryButton(btnOpenDiplaySetup, palette);
         DiPlayStyle.styleSecondaryButton(btnEnterCarplay, palette);
+        DiPlayStyle.styleSecondaryButton(btnCarlifeOpenFullscreen, palette);
+        DiPlayStyle.styleSecondaryButton(btnCarlifeHome, palette);
+        DiPlayStyle.styleSecondaryButton(btnCarlifeBack, palette);
+        DiPlayStyle.styleSecondaryButton(btnCarlifeVoice, palette);
+        DiPlayStyle.styleSecondaryButton(btnCarlifeRefresh, palette);
+        DiPlayStyle.styleSecondaryButton(btnCarlifeGuide, palette);
+        if (tvCarlifePreviewHint != null) {
+            tvCarlifePreviewHint.setTextColor(palette.textSecondary);
+        }
         DiPlayStyle.styleSecondaryButton(btnPairController, palette);
         DiPlayStyle.styleSecondaryButton(btnEnableGlobalKeys, palette);
 
@@ -373,7 +417,7 @@ public class MainActivity extends Activity {
 
         btnEnterCarplay.setOnClickListener(v -> {
             if (isCarLifeMode()) {
-                showCarLifeGuideDialog();
+                openCarLifeFullscreenPreview();
                 return;
             }
             AutoConnectManager.getInstance(this).markSessionManual();
@@ -390,6 +434,8 @@ public class MainActivity extends Activity {
                 });
             }, "LaunchCarPlayHost").start();
         });
+
+        setupInlineCarLifePreviewControls();
 
         btnPairController.setOnClickListener(v -> {
             try {
@@ -468,18 +514,138 @@ public class MainActivity extends Activity {
         updateIphoneUi();
     }
 
+    @SuppressLint("ClickableViewAccessibility")
+    private void setupInlineCarLifePreviewControls() {
+        btnCarlifeOpenFullscreen.setOnClickListener(v -> openCarLifeFullscreenPreview());
+        btnCarlifeGuide.setOnClickListener(v -> showCarLifeGuideDialog());
+
+        btnCarlifeHome.setOnClickListener(v -> {
+            CarLifeLocalReceiver cl = bridgeService != null ? bridgeService.getCarLifeReceiver() : null;
+            if (cl != null) cl.sendHomeKey();
+        });
+        btnCarlifeBack.setOnClickListener(v -> {
+            CarLifeLocalReceiver cl = bridgeService != null ? bridgeService.getCarLifeReceiver() : null;
+            if (cl != null) cl.sendBackKey();
+        });
+        btnCarlifeVoice.setOnClickListener(v -> {
+            CarLifeLocalReceiver cl = bridgeService != null ? bridgeService.getCarLifeReceiver() : null;
+            if (cl != null) cl.sendVoiceKey();
+        });
+        btnCarlifeRefresh.setOnClickListener(v -> {
+            CarLifeLocalReceiver cl = bridgeService != null ? bridgeService.getCarLifeReceiver() : null;
+            if (cl != null) {
+                cl.requestKeyframe();
+                Toast.makeText(this, "已刷新 CarLife 关键帧", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        textureCarlifeInline.setOpaque(true);
+        textureCarlifeInline.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
+            @Override
+            public void onSurfaceTextureAvailable(SurfaceTexture surfaceTexture, int width, int height) {
+                releaseInlinePreviewSurface();
+                inlinePreviewSurface = new Surface(surfaceTexture);
+                CarLifeLocalReceiver cl = bridgeService != null ? bridgeService.getCarLifeReceiver() : null;
+                if (cl != null) {
+                    cl.attachPreviewSurface(inlinePreviewSurface);
+                }
+            }
+
+            @Override
+            public void onSurfaceTextureSizeChanged(SurfaceTexture surfaceTexture, int width, int height) {}
+
+            @Override
+            public boolean onSurfaceTextureDestroyed(SurfaceTexture surfaceTexture) {
+                releaseInlinePreviewSurface();
+                return true;
+            }
+
+            @Override
+            public void onSurfaceTextureUpdated(SurfaceTexture surfaceTexture) {}
+        });
+
+        textureCarlifeInline.setOnTouchListener((v, event) -> {
+            int masked = event.getActionMasked();
+            if (masked == MotionEvent.ACTION_DOWN || masked == MotionEvent.ACTION_POINTER_DOWN) {
+                if (v.getParent() != null) {
+                    v.getParent().requestDisallowInterceptTouchEvent(true);
+                }
+            } else if (masked == MotionEvent.ACTION_UP || masked == MotionEvent.ACTION_CANCEL) {
+                if (v.getParent() != null) {
+                    v.getParent().requestDisallowInterceptTouchEvent(false);
+                }
+            }
+            CarLifeLocalReceiver cl = bridgeService != null ? bridgeService.getCarLifeReceiver() : null;
+            if (cl != null) {
+                cl.sendTouchEvent(event, v.getWidth(), v.getHeight());
+            }
+            return true;
+        });
+    }
+
+    private void openCarLifeFullscreenPreview() {
+        CarLifeLocalReceiver cl = bridgeService != null ? bridgeService.getCarLifeReceiver() : null;
+        if (cl == null || !cl.isRunning()) {
+            if (bridgeService != null) {
+                bridgeService.startCarLifeReceiver();
+            }
+            Toast.makeText(this, "已启动本机 CarLife 接收，打开百度 CarLife+ 后即可触控投屏", Toast.LENGTH_SHORT).show();
+        }
+        startActivity(new Intent(this, CarLifePreviewActivity.class));
+    }
+
+    private void reattachInlineCarLifePreviewIfReady() {
+        if (textureCarlifeInline == null || !textureCarlifeInline.isAvailable()) return;
+        if (inlinePreviewSurface == null) {
+            inlinePreviewSurface = new Surface(textureCarlifeInline.getSurfaceTexture());
+        }
+        CarLifeLocalReceiver cl = bridgeService != null ? bridgeService.getCarLifeReceiver() : null;
+        if (cl != null && inlinePreviewSurface != null && inlinePreviewSurface.isValid()) {
+            cl.attachPreviewSurface(inlinePreviewSurface);
+        }
+    }
+
+    private void releaseInlinePreviewSurface() {
+        Surface closing = inlinePreviewSurface;
+        inlinePreviewSurface = null;
+        CarLifeLocalReceiver cl = bridgeService != null ? bridgeService.getCarLifeReceiver() : null;
+        if (cl != null && closing != null) {
+            cl.detachPreviewSurface(closing);
+        }
+        if (closing != null) {
+            try { closing.release(); } catch (Exception ignored) {}
+        }
+    }
+
+    private void updateInlinePreviewAspect(int videoW, int videoH) {
+        if (containerCarlifePreview == null || videoW <= 0 || videoH <= 0) return;
+        int w = containerCarlifePreview.getWidth();
+        if (w <= 0) {
+            containerCarlifePreview.post(() -> updateInlinePreviewAspect(videoW, videoH));
+            return;
+        }
+        int targetH = Math.max(DiPlayStyle.dp(this, 120), Math.round(w * (float) videoH / (float) videoW));
+        ViewGroup.LayoutParams lp = containerCarlifePreview.getLayoutParams();
+        if (lp != null && lp.height != targetH) {
+            lp.height = targetH;
+            containerCarlifePreview.setLayoutParams(lp);
+        }
+    }
+
     private void showCarLifeGuideDialog() {
         int[] canvas = DiPlayConfigOptimizer.getEffectiveCarLifeCanvasSize(this);
         DiPlayConfigOptimizer.BikePresetSpec spec = DiPlayConfigOptimizer.getActivePresetSpec(this);
         new AlertDialog.Builder(this)
-                .setTitle("本机 CarLife 使用指引（纯安卓）")
+                .setTitle("本机 CarLife 与蓝牙选择说明")
                 .setMessage(
-                        "无需 iPhone，直接使用本台安卓手机的高德地图与音乐投屏至思骑仪表：\n\n" +
-                        "1. 第 1 步先在仪表开启投屏，手机连上仪表 Wi-Fi。\n" +
-                        "2. 点击「启动本机 CarLife 接收」（或在仪表连上时自动启动），摩投将在后台按 " +
-                        canvas[0] + "×" + canvas[1] + " 画布协商并映射至仪表 " + spec.streamWidth + "×" + spec.streamHeight + "。\n" +
-                        "3. 点「打开百度 CarLife+」启动百度 CarLife+（或兼容车联助手），连接本机 127.0.0.1 车机端即可开始投屏。\n" +
-                        "4. 音频默认留在手机端直接播放到头盔蓝牙耳机；手把方向键支持控制 CarLife 上下确认与返回。")
+                        "一、纯安卓本机 CarLife 使用步骤：\n" +
+                        "1. 第 1 步在仪表打开投屏，手机连上仪表 Wi-Fi。\n" +
+                        "2. 点「启动本机 CarLife 接收」（摩投按 " + canvas[0] + "×" + canvas[1] + " 协商并推流至仪表 " + spec.streamWidth + "×" + spec.streamHeight + "），再点「打开百度 CarLife+ / 车联」。\n" +
+                        "3. 连通后可直接在首页小屏或「全屏预览 / 触控」里点按、拖动地图、双指缩放，并用下方 主页/返回/语音 快捷操控。\n\n" +
+                        "二、手机设置里 CarLife / CarWith 蓝牙该选谁？\n" +
+                        "• 「仪表蓝牙」通常为纯 BLE（低功耗）数据配对，不带传统车机音频配置文件，大部分系统设置中选不了或连上也只是辅助触发；\n" +
+                        "• 在本模式中，摩投直接在手机本地与 CarLife+ 建立连接，**手机设置里的 CarLife/CarWith 蓝牙继续选你的「头盔耳机蓝牙」即可正常触发并保留耳机听歌/导航！**\n" +
+                        "• 若你的仪表确实带经典蓝牙并导致系统误选仪表音频，请进系统「设置 › 蓝牙 › 仪表名称 › 详情」关闭「媒体音频」与「通话音频」，音频即可稳定留在头盔耳机。")
                 .setPositiveButton("知道了", null)
                 .show();
     }
@@ -495,8 +661,9 @@ public class MainActivity extends Activity {
             tvAudioRouteChip.setText("音频: 本机蓝牙耳机");
             DiPlayStyle.styleChip(tvAudioRouteChip, palette, palette.accent);
 
-            btnOpenDiplaySetup.setText("打开百度 CarLife+");
-            btnEnterCarplay.setText("本机 CarLife 说明");
+            btnOpenDiplaySetup.setText("打开 CarLife / 车联");
+            btnEnterCarplay.setText("全屏预览 / 触控");
+            if (btnCarlifeGuide != null) btnCarlifeGuide.setVisibility(View.VISIBLE);
 
             CarLifeLocalReceiver cl = bridgeService != null ? bridgeService.getCarLifeReceiver() : null;
             boolean clRunning = cl != null && cl.isRunning();
@@ -510,11 +677,26 @@ public class MainActivity extends Activity {
                 DiPlayStyle.stylePrimaryButton(btnStartVirtualCarplay, palette);
             }
 
+            if (layoutCarlifeInlinePreview != null) {
+                layoutCarlifeInlinePreview.setVisibility(clRunning ? View.VISIBLE : View.GONE);
+            }
+            if (clRunning && cl != null) {
+                boolean hasVideo = st == CarLifeLocalReceiver.State.STREAMING || cl.hasReceivedVideo();
+                if (tvCarlifePreviewPlaceholder != null) {
+                    tvCarlifePreviewPlaceholder.setVisibility(hasVideo ? View.GONE : View.VISIBLE);
+                    if (!hasVideo) {
+                        tvCarlifePreviewPlaceholder.setText("等待 CarLife 视频首帧…\n如已打开 CarLife+ 请切入地图/媒体页");
+                    }
+                }
+                updateInlinePreviewAspect(cl.getNegotiatedWidth(), cl.getNegotiatedHeight());
+                reattachInlineCarLifePreviewIfReady();
+            }
+
             if (st == CarLifeLocalReceiver.State.STREAMING) {
                 tvIphoneSession.setText("本机 CarLife 正在向仪表投屏");
                 tvIphoneSession.setTextColor(palette.success);
                 tvAutoConnectStatus.setText("输入 " + cl.getNegotiatedWidth() + "×" + cl.getNegotiatedHeight()
-                        + " · 已解码 " + cl.getDecodedFrames() + " 帧（支持息屏骑行与手把按键）");
+                        + " · 已接收 " + cl.getDecodedFrames() + " 帧 · 下方小屏可直接触控");
                 tvAutoConnectStatus.setTextColor(palette.success);
             } else if (st == CarLifeLocalReceiver.State.HANDSHAKING) {
                 tvIphoneSession.setText("已握手中 · 等待 CarLife 视频流");
@@ -530,10 +712,17 @@ public class MainActivity extends Activity {
                 tvIphoneSession.setText("本机 CarLife 就绪（无需 iPhone）");
                 tvIphoneSession.setTextColor(palette.textPrimary);
                 int[] canvas = DiPlayConfigOptimizer.getEffectiveCarLifeCanvasSize(this);
-                tvAutoConnectStatus.setText("协商画布 " + canvas[0] + "×" + canvas[1] + " · 点下方启动后打开百度 CarLife+ 即可投屏");
+                tvAutoConnectStatus.setText("协商画布 " + canvas[0] + "×" + canvas[1] + " · 点下方启动，支持小屏触控与全屏预览");
                 tvAutoConnectStatus.setTextColor(palette.textSecondary);
             }
             return;
+        }
+
+        if (layoutCarlifeInlinePreview != null) {
+            layoutCarlifeInlinePreview.setVisibility(View.GONE);
+        }
+        if (btnCarlifeGuide != null) {
+            btnCarlifeGuide.setVisibility(View.GONE);
         }
 
         if (tvKicker != null) tvKicker.setText("2 · 无线 CARPLAY (中继)");
@@ -664,6 +853,7 @@ public class MainActivity extends Activity {
             cl.addListener(carLifeListener);
         }
 
+        reattachInlineCarLifePreviewIfReady();
         updateClusterUi();
         updateIphoneUi();
         AutoConnectManager.getInstance(this).evaluateOnAppLaunch();
@@ -782,6 +972,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         super.onDestroy();
         cancelAutoMinimize();
+        releaseInlinePreviewSurface();
         AutoConnectManager.getInstance(this).setUiListener(null);
         if (handlebarKeyListener != null) {
             HandlebarKeyBridge.getInstance().removeListener(handlebarKeyListener);

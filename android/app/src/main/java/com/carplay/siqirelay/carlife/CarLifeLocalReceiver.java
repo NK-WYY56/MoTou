@@ -5,7 +5,9 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
+import android.view.MotionEvent;
 import android.view.Surface;
 
 import com.carplay.siqirelay.carplay.DiPlayConfigOptimizer;
@@ -20,16 +22,18 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Built-in local Baidu CarLife Head-Unit (HU) receiver engine.
- * Enables Android riders without an iPhone to run Baidu CarLife+ (or Carlink/CarLife compatible apps)
- * locally on the same phone, connect via localhost (127.0.0.1) or LAN discovery (7240/8240/9340...),
- * decode the CarLife H.264 stream directly onto MoTou's VirtualDisplay Surface, and forward
- * handlebar controller keys back as CarLife hard-key events.
+ * Supports dual independent hardware decoders (cluster VirtualDisplay + touchable phone preview),
+ * ordered touch/key event forwarding (tap, drag, two-finger zoom, home/back/voice),
+ * and handlebar key control.
  */
 public class CarLifeLocalReceiver {
     private static final String TAG = "CarLifeLocalReceiver";
@@ -38,7 +42,10 @@ public class CarLifeLocalReceiver {
             "com.baidu.carlife.xiaomi",
             "com.baidu.carlife.honor",
             "com.baidu.carlife.vivo",
-            "com.miui.carlink"
+            "com.miui.carlink",
+            "com.xiaomi.carlink",
+            "com.miui.carwith",
+            "com.xiaomi.carwith"
     };
 
     public enum State {
@@ -55,8 +62,14 @@ public class CarLifeLocalReceiver {
 
     private final Context context;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final CarLifeVideoDecoder decoder = new CarLifeVideoDecoder();
+    private final CarLifeVideoDecoder clusterDecoder = new CarLifeVideoDecoder("cluster");
+    private final CarLifeVideoDecoder previewDecoder = new CarLifeVideoDecoder("preview");
     private final List<Listener> listeners = new CopyOnWriteArrayList<>();
+    private final ExecutorService inputExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "CarLifeInputOrdered");
+        t.setDaemon(true);
+        return t;
+    });
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile State state = State.STOPPED;
@@ -66,7 +79,17 @@ public class CarLifeLocalReceiver {
     private volatile int negotiatedWidth = 1280;
     private volatile int negotiatedHeight = 560;
     private volatile long decodedFrames = 0L;
+    private volatile long videoPacketsReceived = 0L;
     private volatile int nextProtocolMajor = 1; // try 1.0 first, auto-fallback to 3.0 if MD rejects
+
+    private final Object keyframeCacheLock = new Object();
+    private byte[] latestSps;
+    private byte[] latestPps;
+    private byte[] latestIdrFrame;
+
+    private long lastMoveSentMs = 0L;
+    private int lastMoveX = Integer.MIN_VALUE;
+    private int lastMoveY = Integer.MIN_VALUE;
 
     private DatagramSocket udpBeaconSocket;
     private Thread udpThread;
@@ -87,23 +110,27 @@ public class CarLifeLocalReceiver {
 
     public CarLifeLocalReceiver(Context context) {
         this.context = context.getApplicationContext();
-        this.decoder.setCallback(new CarLifeVideoDecoder.Callback() {
+        CarLifeVideoDecoder.Callback frameCb = new CarLifeVideoDecoder.Callback() {
             @Override
             public void onFirstFrameRendered(int width, int height) {
                 negotiatedWidth = width;
                 negotiatedHeight = height;
                 updateState(State.STREAMING, "本机 CarLife 投屏中（" + width + "×" + height + "）");
-                notifyFrame(decodedFrames, width, height);
+                notifyFrame(Math.max(1L, decodedFrames), width, height);
             }
 
             @Override
             public void onFrameDecoded(long frameCount) {
-                decodedFrames = frameCount;
+                if (frameCount > decodedFrames) {
+                    decodedFrames = frameCount;
+                }
                 if (frameCount == 1 || frameCount % 30 == 0) {
-                    notifyFrame(frameCount, negotiatedWidth, negotiatedHeight);
+                    notifyFrame(decodedFrames, negotiatedWidth, negotiatedHeight);
                 }
             }
-        });
+        };
+        this.clusterDecoder.setCallback(frameCb);
+        this.previewDecoder.setCallback(frameCb);
     }
 
     public void addListener(Listener l) {
@@ -131,7 +158,7 @@ public class CarLifeLocalReceiver {
     }
 
     public long getDecodedFrames() {
-        return decodedFrames;
+        return Math.max(decodedFrames, videoPacketsReceived);
     }
 
     public int getNegotiatedWidth() {
@@ -142,12 +169,52 @@ public class CarLifeLocalReceiver {
         return negotiatedHeight;
     }
 
+    public boolean hasReceivedVideo() {
+        return videoPacketsReceived > 0;
+    }
+
     public void attachOutputSurface(Surface surface) {
         int[] canvas = DiPlayConfigOptimizer.getEffectiveCarLifeCanvasSize(context);
-        decoder.configureDimensions(canvas[0], canvas[1]);
-        decoder.attachSurface(surface);
-        if (surface != null && isConnected()) {
-            requestKeyframe();
+        clusterDecoder.configureDimensions(canvas[0], canvas[1]);
+        clusterDecoder.attachSurface(surface);
+        if (surface != null) {
+            byte[] sps, pps, idr;
+            synchronized (keyframeCacheLock) {
+                sps = latestSps;
+                pps = latestPps;
+                idr = latestIdrFrame;
+            }
+            if (sps != null && pps != null && idr != null) {
+                clusterDecoder.bootstrapWithCachedFrame(sps, pps, idr);
+            }
+            if (isConnected()) {
+                requestKeyframe();
+            }
+        }
+    }
+
+    public void attachPreviewSurface(Surface surface) {
+        previewDecoder.configureDimensions(negotiatedWidth, negotiatedHeight);
+        previewDecoder.attachSurface(surface);
+        if (surface != null) {
+            byte[] sps, pps, idr;
+            synchronized (keyframeCacheLock) {
+                sps = latestSps;
+                pps = latestPps;
+                idr = latestIdrFrame;
+            }
+            if (sps != null && pps != null && idr != null) {
+                previewDecoder.bootstrapWithCachedFrame(sps, pps, idr);
+            }
+            if (isConnected()) {
+                requestKeyframe();
+            }
+        }
+    }
+
+    public void detachPreviewSurface(Surface expected) {
+        if (expected == null || previewDecoder.getOutputSurface() == expected) {
+            previewDecoder.attachSurface(null);
         }
     }
 
@@ -156,8 +223,15 @@ public class CarLifeLocalReceiver {
         int[] canvas = DiPlayConfigOptimizer.getEffectiveCarLifeCanvasSize(context);
         negotiatedWidth = canvas[0];
         negotiatedHeight = canvas[1];
-        decoder.configureDimensions(negotiatedWidth, negotiatedHeight);
+        clusterDecoder.configureDimensions(negotiatedWidth, negotiatedHeight);
+        previewDecoder.configureDimensions(negotiatedWidth, negotiatedHeight);
         decodedFrames = 0L;
+        videoPacketsReceived = 0L;
+        synchronized (keyframeCacheLock) {
+            latestSps = null;
+            latestPps = null;
+            latestIdrFrame = null;
+        }
 
         updateState(State.DISCOVERING, "正在等待本机 CarLife+ 接入（127.0.0.1:7240）...");
         startUdpDiscoveryListener();
@@ -168,27 +242,61 @@ public class CarLifeLocalReceiver {
         if (!running.getAndSet(false)) return;
         closeUdp();
         closeSessionSockets();
-        decoder.reset();
+        clusterDecoder.reset();
+        previewDecoder.reset();
         decodedFrames = 0L;
+        videoPacketsReceived = 0L;
+        synchronized (keyframeCacheLock) {
+            latestSps = null;
+            latestPps = null;
+            latestIdrFrame = null;
+        }
         updateState(State.STOPPED, "本机 CarLife 已停止");
     }
 
     public void requestKeyframe() {
         if (!running.get()) return;
-        OutputStream out = cmdOut;
+        final OutputStream out = cmdOut;
         if (out == null) return;
-        new Thread(() -> {
+        inputExecutor.execute(() -> {
             try {
                 CarLifeProtocol.writeMessage(out, CarLifeProtocol.CH_CMD, CarLifeProtocol.MSG_CMD_VIDEO_ENCODER_RESET, null);
                 CarLifeProtocol.writeMessage(out, CarLifeProtocol.CH_CMD, CarLifeProtocol.MSG_CMD_VIDEO_ENCODER_START, null);
             } catch (Exception ignored) {}
-        }, "CarLifeResetIDR").start();
+        });
+    }
+
+    public void sendHomeKey() {
+        sendRawHardKeyCode(3); // KEYCODE_HOME
+    }
+
+    public void sendBackKey() {
+        sendRawHardKeyCode(4); // KEYCODE_BACK
+    }
+
+    public void sendVoiceKey() {
+        sendRawHardKeyCode(231); // KEYCODE_VOICE_ASSIST
+    }
+
+    private void sendRawHardKeyCode(final int keyCode) {
+        if (!isConnected()) return;
+        final OutputStream out = touchOut;
+        if (out == null) return;
+        inputExecutor.execute(() -> {
+            try {
+                byte[] payload = new CarLifeProtocol.ProtoWriter()
+                        .writeInt(1, keyCode)
+                        .toByteArray();
+                CarLifeProtocol.writeMessage(out, CarLifeProtocol.CH_TOUCH,
+                        CarLifeProtocol.MSG_TOUCH_CAR_HARD_KEY_CODE, payload);
+            } catch (Exception e) {
+                Log.w(TAG, "sendRawHardKeyCode error: " + e.getMessage());
+            }
+        });
     }
 
     public void sendHardKey(HandlebarKeyBridge.KeyAction action, boolean isLongPress) {
         if (!isConnected() || action == null) return;
-        OutputStream out = touchOut;
-        if (out == null) return;
         final int carlifeKeyCode;
         switch (action) {
             case UP:
@@ -215,23 +323,13 @@ public class CarLifeLocalReceiver {
             default:
                 return;
         }
-        new Thread(() -> {
-            try {
-                byte[] payload = new CarLifeProtocol.ProtoWriter()
-                        .writeInt(1, carlifeKeyCode)
-                        .toByteArray();
-                CarLifeProtocol.writeMessage(out, CarLifeProtocol.CH_TOUCH,
-                        CarLifeProtocol.MSG_TOUCH_CAR_HARD_KEY_CODE, payload);
-            } catch (Exception e) {
-                Log.w(TAG, "sendHardKey error: " + e.getMessage());
-            }
-        }, "CarLifeHardKey").start();
+        sendRawHardKeyCode(carlifeKeyCode);
     }
 
     public void sendTouch(int action, int x, int y) {
-        OutputStream out = touchOut;
+        final OutputStream out = touchOut;
         if (!isConnected() || out == null) return;
-        new Thread(() -> {
+        inputExecutor.execute(() -> {
             try {
                 byte[] payload = new CarLifeProtocol.ProtoWriter()
                         .writeInt(1, action)
@@ -241,7 +339,64 @@ public class CarLifeLocalReceiver {
                 CarLifeProtocol.writeMessage(out, CarLifeProtocol.CH_TOUCH,
                         CarLifeProtocol.MSG_TOUCH_ACTION, payload);
             } catch (Exception ignored) {}
-        }, "CarLifeTouch").start();
+        });
+    }
+
+    /**
+     * Maps Android MotionEvent coordinates inside the preview TextureView into CarLife
+     * canvas coordinates and dispatches them cleanly on the ordered single-thread writer.
+     */
+    public void sendTouchEvent(MotionEvent event, int viewWidth, int viewHeight) {
+        if (event == null || !isConnected() || viewWidth <= 0 || viewHeight <= 0) return;
+        final OutputStream out = touchOut;
+        if (out == null) return;
+
+        final int w = Math.max(1, negotiatedWidth);
+        final int h = Math.max(1, negotiatedHeight);
+        final int action = event.getAction();
+        final int masked = event.getActionMasked();
+
+        int x0 = clampCoord((event.getX(0) / viewWidth) * w, w);
+        int y0 = clampCoord((event.getY(0) / viewHeight) * h, h);
+
+        if (masked == MotionEvent.ACTION_MOVE && event.getPointerCount() == 1) {
+            long now = SystemClock.elapsedRealtime();
+            if (now - lastMoveSentMs < 12L
+                    && Math.abs(x0 - lastMoveX) < 2
+                    && Math.abs(y0 - lastMoveY) < 2) {
+                return;
+            }
+            lastMoveSentMs = now;
+            lastMoveX = x0;
+            lastMoveY = y0;
+        } else if (masked == MotionEvent.ACTION_UP || masked == MotionEvent.ACTION_CANCEL) {
+            lastMoveSentMs = 0L;
+            lastMoveX = Integer.MIN_VALUE;
+            lastMoveY = Integer.MIN_VALUE;
+        }
+
+        final boolean hasSecondPointer = event.getPointerCount() > 1;
+        final int x1 = hasSecondPointer ? clampCoord((event.getX(1) / viewWidth) * w, w) : 0;
+        final int y1 = hasSecondPointer ? clampCoord((event.getY(1) / viewHeight) * h, h) : 0;
+
+        inputExecutor.execute(() -> {
+            try {
+                CarLifeProtocol.ProtoWriter writer = new CarLifeProtocol.ProtoWriter()
+                        .writeInt(1, action)
+                        .writeInt(2, x0)
+                        .writeInt(3, y0);
+                if (hasSecondPointer) {
+                    writer.writeInt(4, x1).writeInt(5, y1);
+                }
+                CarLifeProtocol.writeMessage(out, CarLifeProtocol.CH_TOUCH,
+                        CarLifeProtocol.MSG_TOUCH_ACTION, writer.toByteArray());
+            } catch (Exception ignored) {}
+        });
+    }
+
+    private static int clampCoord(float raw, int maxExclusive) {
+        int val = Math.round(raw);
+        return Math.max(0, Math.min(maxExclusive - 1, val));
     }
 
     private void startUdpDiscoveryListener() {
@@ -447,7 +602,7 @@ public class CarLifeLocalReceiver {
                     CarLifeProtocol.Message msg = CarLifeProtocol.readMessage(vin, CarLifeProtocol.CH_VIDEO);
                     if (msg == null) break;
                     if (msg.id == CarLifeProtocol.MSG_VIDEO_DATA) {
-                        decoder.feedAnnexB(msg.payload);
+                        handleVideoFrame(msg.payload);
                     } else if (msg.id == CarLifeProtocol.MSG_CMD_VIDEO_ENCODER_INIT_DONE) {
                         handleVideoEncoderInitDone(msg.payload);
                     }
@@ -458,6 +613,56 @@ public class CarLifeLocalReceiver {
         }, "CarLifeVideoReader");
         videoThread.setDaemon(true);
         videoThread.start();
+    }
+
+    private void handleVideoFrame(byte[] payload) {
+        if (payload == null || payload.length == 0) return;
+        cacheKeyframeIfPresent(payload);
+        videoPacketsReceived++;
+        if (videoPacketsReceived == 1) {
+            updateState(State.STREAMING, "本机 CarLife 投屏中（" + negotiatedWidth + "×" + negotiatedHeight + "）");
+            notifyFrame(1L, negotiatedWidth, negotiatedHeight);
+        } else if (videoPacketsReceived % 30 == 0) {
+            notifyFrame(getDecodedFrames(), negotiatedWidth, negotiatedHeight);
+        }
+        clusterDecoder.feedAnnexB(payload);
+        previewDecoder.feedAnnexB(payload);
+    }
+
+    private void cacheKeyframeIfPresent(byte[] data) {
+        byte[] sps = null;
+        byte[] pps = null;
+        boolean hasIdr = false;
+        int i = 0;
+        int naluStart = -1;
+        while (i <= data.length) {
+            boolean atEnd = (i == data.length);
+            boolean is4 = !atEnd && i <= data.length - 4 && data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 0 && data[i + 3] == 1;
+            boolean is3 = !atEnd && !is4 && i <= data.length - 3 && data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1;
+            if (atEnd || is4 || is3) {
+                if (naluStart >= 0 && i > naluStart) {
+                    int hdrOff = (naluStart + 3 < i && data[naluStart + 2] == 0) ? 4 : 3;
+                    if (naluStart + hdrOff < i) {
+                        int type = data[naluStart + hdrOff] & 0x1F;
+                        if (type == 7) sps = Arrays.copyOfRange(data, naluStart, i);
+                        else if (type == 8) pps = Arrays.copyOfRange(data, naluStart, i);
+                        else if (type == 5) hasIdr = true;
+                    }
+                }
+                if (atEnd) break;
+                naluStart = i;
+                i += is4 ? 4 : 3;
+            } else {
+                i++;
+            }
+        }
+        if (sps != null || pps != null || hasIdr) {
+            synchronized (keyframeCacheLock) {
+                if (sps != null) latestSps = sps;
+                if (pps != null) latestPps = pps;
+                if (hasIdr) latestIdrFrame = Arrays.copyOf(data, data.length);
+            }
+        }
     }
 
     private void startHeartbeatLoop() {
@@ -583,7 +788,8 @@ public class CarLifeLocalReceiver {
         int[] canvas = DiPlayConfigOptimizer.getEffectiveCarLifeCanvasSize(context);
         negotiatedWidth = canvas[0];
         negotiatedHeight = canvas[1];
-        decoder.configureDimensions(negotiatedWidth, negotiatedHeight);
+        clusterDecoder.configureDimensions(negotiatedWidth, negotiatedHeight);
+        previewDecoder.configureDimensions(negotiatedWidth, negotiatedHeight);
 
         byte[] init = new CarLifeProtocol.ProtoWriter()
                 .writeInt(1, negotiatedWidth)
@@ -603,7 +809,8 @@ public class CarLifeLocalReceiver {
             if (w >= 320 && h >= 240) {
                 negotiatedWidth = w;
                 negotiatedHeight = h;
-                decoder.configureDimensions(w, h);
+                clusterDecoder.configureDimensions(w, h);
+                previewDecoder.configureDimensions(w, h);
             }
         }
         OutputStream out = cmdOut;
